@@ -1,0 +1,8 @@
+.env
+.idea/
+.vscode/
+*.log
+node_modules/
+backend/target/
+frontend/.next/
+frontend/node_modules/

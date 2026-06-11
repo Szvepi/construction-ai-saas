@@ -1,0 +1,14 @@
+{
+	email {$ACME_EMAIL:admin@example.com}
+}
+
+{$DOMAIN:localhost} {
+	@api path /api/* /actuator/*
+	handle @api {
+		reverse_proxy {$API_UPSTREAM:app:8080}
+	}
+
+	handle {
+		reverse_proxy {$FRONTEND_UPSTREAM:frontend:3000}
+	}
+}
