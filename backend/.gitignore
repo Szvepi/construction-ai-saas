@@ -1,6 +1,22 @@
+# Java
 target/
+*.class
+
+# IntelliJ
 .idea/
 *.iml
-.classpath
-.project
-.settings/
+
+# Node
+node_modules/
+.next/
+
+# Environment
+.env
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
