@@ -32,6 +32,8 @@ docker-compose.yml
 
 ## Quick start (local dev)
 
+Backend and frontend run on your machine; only PostgreSQL and Redis run in Docker.
+
 ### 1. Environment
 
 ```bash
@@ -39,10 +41,33 @@ cp .env.example .env
 # Edit .env with your secrets
 ```
 
-### 2. Database & Redis
+Use **localhost** for DB/Redis in `.env` (defaults in `application.yml` match):
+
+| Variable | Local dev value |
+|----------|-----------------|
+| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/buildassist` |
+| `REDIS_HOST` | `localhost` |
+| `REDIS_PORT` | `6379` |
+
+The Docker `app` service overrides these to `postgres` / `redis` hostnames internally.
+
+### 2. Database & Redis (Docker)
 
 ```bash
 docker compose up -d postgres redis
+```
+
+Exposed on the host (bind `127.0.0.1` only):
+
+- PostgreSQL → `localhost:5432` (override with `POSTGRES_PORT`)
+- Redis → `localhost:6379` (override with `REDIS_PORT`)
+
+Verify:
+
+```bash
+docker compose ps
+# psql: docker compose exec postgres psql -U buildassist -d buildassist
+# redis: docker compose exec redis redis-cli ping
 ```
 
 ### 3. Backend
@@ -52,7 +77,15 @@ cd backend
 mvn spring-boot:run
 ```
 
-API: `http://localhost:8080` — health: `GET /actuator/health`
+Windows (loads `.env` automatically):
+
+```powershell
+.\scripts\run-backend.ps1
+```
+
+Or set env vars in your IDE run configuration from the root `.env` file.
+
+API: `http://localhost:8080` — Swagger: `http://localhost:8080/swagger-ui.html`
 
 ### 4. Frontend
 
