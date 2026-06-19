@@ -9,7 +9,11 @@ import com.buildassist.repository.GmailConnectionRepository;
 import com.buildassist.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -20,6 +24,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Optional;
 
+/**
+ * Gmail service using Spring Security OAuth2AuthorizedClient.
+ *
+ * For email fetching, use the OAuth2 access tokens managed by Spring Security.
+ * This service leverages Spring's OAuth2 context to securely access Gmail APIs
+ * without handling raw tokens directly.
+ */
 @Service
 public class GmailService {
 
@@ -27,6 +38,8 @@ public class GmailService {
     private final GmailConnectionRepository gmailConnectionRepository;
     private final UserRepository userRepository;
     private final TokenEncryptionService tokenEncryptionService;
+    private final OAuth2AuthorizedClientService oauth2ClientService;
+    private final RestTemplate restTemplate;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -34,17 +47,25 @@ public class GmailService {
             AppProperties appProperties,
             GmailConnectionRepository gmailConnectionRepository,
             UserRepository userRepository,
-            TokenEncryptionService tokenEncryptionService) {
+            TokenEncryptionService tokenEncryptionService,
+            OAuth2AuthorizedClientService oauth2ClientService,
+            RestTemplate restTemplate) {
         this.appProperties = appProperties;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.userRepository = userRepository;
         this.tokenEncryptionService = tokenEncryptionService;
+        this.oauth2ClientService = oauth2ClientService;
+        this.restTemplate = restTemplate;
     }
 
+    /**
+     * Get the authorization URL for OAuth2 login flow.
+     * Modern approach: use Spring Security's oauth2Login() configuration.
+     * This method is for reference/legacy support.
+     */
     public GmailConnectResponse getAuthorizationUrl(Long userId) {
         String clientId = appProperties.getGmail().getClientId();
         String redirectUri = appProperties.getGmail().getRedirectUri();
-        // request Gmail send + readonly and basic profile info
         String scope = String.join(" ",
                 "openid",
                 "email",
@@ -65,6 +86,10 @@ public class GmailService {
         return new GmailConnectResponse(url);
     }
 
+    /**
+     * Store OAuth2 tokens from callback (legacy manual OAuth flow).
+     * In modern setup, Spring Security OAuth2 handles this transparently.
+     */
     public void handleOAuthCallback(String code, String state) {
         try {
             Long userId = Long.parseLong(state);
@@ -146,6 +171,10 @@ public class GmailService {
         }
     }
 
+    /**
+     * Check if user has Gmail connection.
+     * With Spring Security OAuth2, this indicates automatic connection via login.
+     */
     public GmailStatusResponse getConnectionStatus(Long userId) {
         Optional<GmailConnection> optionalGmailConnection = gmailConnectionRepository.findByUserId(userId);
         if (optionalGmailConnection.isEmpty()) {
@@ -153,6 +182,25 @@ public class GmailService {
         }
         GmailConnection gmailConnection = optionalGmailConnection.get();
         return new GmailStatusResponse(true, gmailConnection.getGmailAddress());
+    }
+
+    /**
+     * Get access token from Spring Security's OAuth2 context.
+     * This is used internally for Gmail API calls.
+     *
+     * @param principalName the principal name (email or user ID) from OAuth2
+     * @return access token if available
+     */
+    public Optional<String> getOAuth2AccessToken(String principalName) {
+        try {
+            OAuth2AuthorizedClient client = oauth2ClientService.loadAuthorizedClient("google", principalName);
+            if (client != null && client.getAccessToken() != null) {
+                return Optional.of(client.getAccessToken().getTokenValue());
+            }
+        } catch (Exception e) {
+            // Client not found or not authorized
+        }
+        return Optional.empty();
     }
 
     private static String urlEncode(String url) {

@@ -21,4 +21,12 @@ public final class AuthDtos {
 
     public record AuthResponse(String token, String email) {
     }
+
+    public record OAuth2UserInfo(
+        String email,
+        String name,
+        String picture,
+        String id) {
+    }
 }
+

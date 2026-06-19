@@ -2,6 +2,7 @@ package com.buildassist.config;
 
 import com.buildassist.security.JwtAuthenticationEntryPoint;
 import com.buildassist.security.JwtAuthenticationFilter;
+import com.buildassist.security.OAuth2AuthenticationSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -20,12 +21,15 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
     private final JwtAuthenticationEntryPoint entryPoint;
+    private final OAuth2AuthenticationSuccessHandler oauth2SuccessHandler;
 
     public SecurityConfig(
             JwtAuthenticationFilter jwtFilter,
-            JwtAuthenticationEntryPoint entryPoint) {
+            JwtAuthenticationEntryPoint entryPoint,
+            OAuth2AuthenticationSuccessHandler oauth2SuccessHandler) {
         this.jwtFilter = jwtFilter;
         this.entryPoint = entryPoint;
+        this.oauth2SuccessHandler = oauth2SuccessHandler;
     }
 
     @Bean
@@ -38,9 +42,12 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(OpenApiPublicPaths.SWAGGER).permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/login/**", "/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/gmail/callback").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 .anyRequest().authenticated())
+            .oauth2Login(oauth2 -> oauth2
+                .successHandler(oauth2SuccessHandler))
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -50,3 +57,5 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 }
+
+
