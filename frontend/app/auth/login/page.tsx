@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { API_BASE_URL } from "@/lib/config";
