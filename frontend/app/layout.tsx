@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "BuildAssist Email",
-  description: "AI email assistant for construction companies",
+  description: "AI e-mail asszisztens építőipari vállalkozások számára",
 };
 
 export default function RootLayout({

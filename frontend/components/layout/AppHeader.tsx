@@ -21,7 +21,7 @@ export function AppHeader({ title = "BuildAssist" }: Props) {
         {title}
       </Link>
       <Button variant="ghost" onClick={logout}>
-        Sign out
+        Kijelentkezés
       </Button>
     </header>
   );

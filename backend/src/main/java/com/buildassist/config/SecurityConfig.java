@@ -42,7 +42,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(OpenApiPublicPaths.SWAGGER).permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
-                .requestMatchers("/login/**", "/error").permitAll()
+                .requestMatchers("/login/**", "/oauth2/**", "/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/gmail/callback").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 .anyRequest().authenticated())

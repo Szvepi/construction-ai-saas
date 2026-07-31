@@ -27,7 +27,7 @@ export function DraftPanel({ emailId, onSent }: Props) {
       setDraftId(data.draftId);
       setBody(data.draftBody);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Generate failed");
+      setError(err instanceof ApiError ? err.message : "A generálás sikertelen");
     } finally {
       setLoading(false);
     }
@@ -44,7 +44,7 @@ export function DraftPanel({ emailId, onSent }: Props) {
       });
       onSent();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Send failed");
+      setError(err instanceof ApiError ? err.message : "Küldés sikertelen");
     } finally {
       setLoading(false);
     }
@@ -52,10 +52,10 @@ export function DraftPanel({ emailId, onSent }: Props) {
 
   return (
     <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="font-semibold">Reply draft</h3>
+      <h3 className="font-semibold">Válaszvázlat</h3>
       {!draftId ? (
         <Button className="mt-3" onClick={generate} disabled={loading}>
-          {loading ? "Generating…" : "Generate reply"}
+          {loading ? "Generálás…" : "Válasz generálása"}
         </Button>
       ) : (
         <>
@@ -66,7 +66,7 @@ export function DraftPanel({ emailId, onSent }: Props) {
           />
           <div className="mt-3 flex gap-2">
             <Button onClick={send} disabled={loading || !body.trim()}>
-              Send
+            Küldés
             </Button>
           </div>
         </>

@@ -36,7 +36,7 @@ export default function EmailDetailPage() {
       return;
     }
     if (Number.isNaN(emailId)) {
-      setError("Invalid email id");
+      setError("Érvénytelen e-mail azonosító");
       setLoading(false);
       return;
     }
@@ -48,16 +48,16 @@ export default function EmailDetailPage() {
       <AppHeader />
       <div className="mx-auto max-w-3xl px-4 py-6">
         <Link href="/dashboard" className="text-sm text-brand-600 hover:underline">
-          ← Back to inbox
+          ← Vissza a beérkezettekhez
         </Link>
-        {loading && <p className="mt-4 text-slate-500">Loading…</p>}
+        {loading && <p className="mt-4 text-slate-500">Betöltés…</p>}
         {error && <p className="mt-4 text-red-600">{error}</p>}
         {email && (
           <article className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
             <h1 className="text-xl font-semibold">
-              {email.subject || "(no subject)"}
+              {email.subject || "(nincs tárgy)"}
             </h1>
-            <p className="mt-1 text-sm text-slate-600">From: {email.fromAddress}</p>
+            <p className="mt-1 text-sm text-slate-600">Feladó: {email.fromAddress}</p>
             <pre className="mt-4 whitespace-pre-wrap text-sm text-slate-800">
               {email.bodyText}
             </pre>
@@ -65,7 +65,7 @@ export default function EmailDetailPage() {
               <DraftPanel emailId={email.id} onSent={() => loadEmail()} />
             )}
             {email.replied && (
-              <p className="mt-4 text-sm text-green-700">This email has been replied to.</p>
+              <p className="mt-4 text-sm text-green-700">Erre az e-mailre már válasz érkezett.</p>
             )}
           </article>
         )}

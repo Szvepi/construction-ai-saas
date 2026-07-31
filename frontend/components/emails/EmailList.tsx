@@ -9,7 +9,7 @@ export function EmailList({ emails }: Props) {
   if (emails.length === 0) {
     return (
       <p className="py-12 text-center text-slate-500">
-        No emails yet. Connect Gmail and refresh.
+        Nincsenek e-mailek. Kapcsold össze Gmail fiókodat, majd frissítsd.
       </p>
     );
   }
@@ -24,11 +24,11 @@ export function EmailList({ emails }: Props) {
           >
             <div className="flex items-start justify-between gap-2">
               <span className="font-medium text-slate-900 line-clamp-1">
-                {email.subject || "(no subject)"}
+                {email.subject || "(nincs tárgy)"}
               </span>
               {email.replied && (
                 <span className="shrink-0 rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
-                  Replied
+                  Válaszolt
                 </span>
               )}
             </div>
