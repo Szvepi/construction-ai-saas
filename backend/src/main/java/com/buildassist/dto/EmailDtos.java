@@ -1,6 +1,7 @@
 package com.buildassist.dto;
 
-import java.time.Instant;
+import com.buildassist.model.EmailCategory;
+import java.time.OffsetDateTime;
 
 public final class EmailDtos {
 
@@ -8,22 +9,30 @@ public final class EmailDtos {
     }
 
     public record EmailSummaryResponse(
-        Long id,
-        String subject,
-        String fromAddress,
-        Instant receivedAt,
-        boolean replied) {
+            Long id,
+            String subject,
+            String fromAddress,
+            OffsetDateTime receivedAt,
+            boolean replied,
+            EmailCategory category) {
     }
 
     public record EmailDetailResponse(
-        Long id,
-        String subject,
-        String fromAddress,
-        String bodyText,
-        Instant receivedAt,
-        boolean replied) {
+            Long id,
+            String subject,
+            String fromAddress,
+            String bodyText,
+            OffsetDateTime receivedAt,
+            boolean replied,
+            EmailCategory category) {
     }
 
     public record RefreshEmailsResponse(int fetchedCount) {
+    }
+
+    public record UpdateCategoryRequest(EmailCategory category) {
+    }
+
+    public record UpdateCategoryResponse(Long id, EmailCategory category) {
     }
 }

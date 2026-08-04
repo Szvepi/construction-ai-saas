@@ -1,9 +1,11 @@
 package com.buildassist.service;
 
+import com.buildassist.dto.EmailDtos;
 import com.buildassist.dto.EmailDtos.EmailDetailResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
 import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.Email;
+import com.buildassist.model.EmailCategory;
 import com.buildassist.model.GmailConnection;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
@@ -19,6 +21,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,16 +52,16 @@ public class EmailService {
         }
 
         GmailConnection conn = gmailConn.get();
-        // TODO meg kell nézni, hogy van e gmail beérkezés dátum és azt is menteni, majd a listát az alapján vissza adni
-        List<Email> emails = emailRepository.findByGmailConnectionIdOrderByReceivedAtDesc(conn.getId());
+        List<Email> emails = emailRepository.findByGmailConnectionIdOrderByEmailReceivedAtDesc(conn.getId());
 
         return emails.stream()
                 .map(email -> new EmailSummaryResponse(
                         email.getId(),
                         email.getSubject(),
                         email.getFromAddress(),
-                        email.getReceivedAt(),
-                        email.isReplied()))
+                        email.getEmailReceivedAt(),
+                        email.isReplied(),
+                        email.getCategory()))
                 .toList();
     }
 
@@ -83,8 +87,37 @@ public class EmailService {
                 email.getSubject(),
                 email.getFromAddress(),
                 email.getBodyText(),
-                email.getReceivedAt(),
-                email.isReplied());
+                email.getEmailReceivedAt(),
+                email.isReplied(),
+                email.getCategory());
+    }
+
+    @Transactional
+    public EmailDtos.UpdateCategoryResponse updateCategory(Long userId, Long emailId, EmailCategory newCategory) {
+        Optional<GmailConnection> gmailConn = gmailConnectionRepository.findByUserId(userId);
+        if (gmailConn.isEmpty()) {
+            throw new IllegalStateException("Gmail not connected for user " + userId);
+        }
+
+        Optional<Email> emailOpt = emailRepository.findById(emailId);
+        if (emailOpt.isEmpty()) {
+            throw new IllegalArgumentException("Email not found: " + emailId);
+        }
+
+        Email email = emailOpt.get();
+        if (!email.getGmailConnection().getId().equals(gmailConn.get().getId())) {
+            throw new IllegalStateException("Email does not belong to user's Gmail connection");
+        }
+
+        // OTHER kategóriába nem lehet áthelyezni
+        if (newCategory == EmailCategory.OTHER) {
+            throw new IllegalArgumentException("Cannot move email to OTHER category");
+        }
+
+        email.setCategory(newCategory);
+        emailRepository.save(email);
+
+        return new EmailDtos.UpdateCategoryResponse(email.getId(), email.getCategory());
     }
 
     @Transactional
@@ -191,11 +224,13 @@ public class EmailService {
             JsonNode headers = metaJson.path("payload").path("headers");
 
             // 2. LÉPÉS: Elő-szűrés a fejlécek, a feladó és a tárgy alapján
-            if (shouldSkipMessage(headers, messageId)) {
-                return null; // Elutasítva - le sem töltjük a teljes törzset!
+            EmailCategory category = categorizeMessage(headers, messageId);
+            if (category == EmailCategory.SPAM) {
+                // Spam - le sem töltjük a teljes törzset!
+                return createEmailFromGmailResponse(gmailConn, messageId, headers, metaJson, category);
             }
 
-            // 3. LÉPÉS: Ha átment a szűrőn, csak AKKOR töltjük le a teljes levelet (format=full)
+            // 3. LÉPÉS: Ha nem spam, csak AKKOR töltjük le a teljes levelet (format=full)
             String fullMessageUrl = "https://www.googleapis.com/gmail/v1/users/me/messages/" + messageId + "?format=full";
             HttpRequest fullReq = HttpRequest.newBuilder()
                     .uri(URI.create(fullMessageUrl))
@@ -212,50 +247,57 @@ public class EmailService {
             JsonNode fullJson = objectMapper.readTree(fullResp.body());
             JsonNode fullHeaders = fullJson.path("payload").path("headers");
 
-            String subject = extractHeader(fullHeaders, "Subject");
-            String fromAddress = extractHeader(fullHeaders, "From");
-            String bodyText = extractBody(fullJson.path("payload"));
-
-            Email email = new Email();
-            email.setGmailConnection(gmailConn);
-            email.setGmailMessageId(messageId);
-            email.setSubject(subject);
-            email.setFromAddress(fromAddress);
-            email.setBodyText(bodyText);
-            email.setReceivedAt(Instant.now());
-            email.setReplied(false);
-
-            return email;
-
+            return createEmailFromGmailResponse(gmailConn, messageId, fullHeaders, fullJson, category);
         } catch (Exception ex) {
             log.error("An error occurred while processing email with ID {}: {}", messageId, ex.getMessage());
             return null;
         }
     }
 
+    private Email createEmailFromGmailResponse(GmailConnection gmailConn, String messageId, JsonNode fullHeaders, JsonNode fullJson, EmailCategory category) {
+        String subject = extractHeader(fullHeaders, "Subject");
+        String fromAddress = extractHeader(fullHeaders, "From");
+        String bodyText = extractBody(fullJson.path("payload"));
+
+        Email email = new Email();
+        email.setGmailConnection(gmailConn);
+        email.setGmailMessageId(messageId);
+        email.setSubject(subject);
+        email.setFromAddress(fromAddress);
+        email.setBodyText(bodyText);
+        email.setSyncedAt(OffsetDateTime.now());
+        email.setEmailReceivedAt(extractEmailReceivedDate(fullJson));
+        email.setReplied(false);
+        email.setCategory(category);
+        return email;
+    }
+
     /**
-     * Zéró költségű elő-szűrő logika a Gmail fejlécek ellenőrzésére.
+     * Zéró költségű kategorizálás a Gmail fejlécek ellenőrzésére.
+     * SPAM: Automata üzenetek, tömeges emailek
+     * QUOTE_REQUEST: Árajánlat kérés
+     * OTHER: Egyéb
      */
-    private boolean shouldSkipMessage(JsonNode headers, String messageId) {
+    private EmailCategory categorizeMessage(JsonNode headers, String messageId) {
         if (headers == null || !headers.isArray()) {
-            return false;
+            return EmailCategory.OTHER;
         }
 
         String from = extractHeader(headers, "From");
         String subject = extractHeader(headers, "Subject");
 
         // A) Hírlevél és tömeges üzenet fejlécek ellenőrzése
-        for (JsonNode h : headers) {
-            String name = h.path("name").asText("");
-            String value = h.path("value").asText("");
+        for (JsonNode header : headers) {
+            String name = header.path("name").asText("");
+            String value = header.path("value").asText("");
 
             if ("List-Unsubscribe".equalsIgnoreCase(name) || "List-ID".equalsIgnoreCase(name)) {
-                log.info("Skipping message {} because it is a mailing list (header {}).", messageId, name);
-                return true;
+                log.info("Categorizing message {} as SPAM (mailing list header {}).", messageId, name);
+                return EmailCategory.SPAM;
             }
             if ("Precedence".equalsIgnoreCase(name) && value.toLowerCase().contains("bulk")) {
-                log.info("Skipping message {} because Precedence header indicates bulk.", messageId);
-                return true;
+                log.info("Categorizing message {} as SPAM (Precedence header indicates bulk).", messageId);
+                return EmailCategory.SPAM;
             }
         }
 
@@ -265,8 +307,8 @@ public class EmailService {
             if (lowerFrom.contains("no-reply@") || lowerFrom.contains("noreply@") ||
                     lowerFrom.contains("newsletter@") || lowerFrom.contains("support@") ||
                     lowerFrom.contains("mailer-daemon@") || lowerFrom.contains("donotreply@")) {
-                log.info("Skipping message {} due to automated sender address: {}", messageId, from);
-                return true;
+                log.info("Categorizing message {} as SPAM (automated sender: {}).", messageId, from);
+                return EmailCategory.SPAM;
             }
         }
 
@@ -276,12 +318,40 @@ public class EmailService {
             if (lowerSubject.contains("biztonsági értesítés") || lowerSubject.contains("jelszó") ||
                     lowerSubject.contains("password reset") || lowerSubject.contains("sikeres fizetés") ||
                     lowerSubject.contains("bejelentkezés") || lowerSubject.contains("login alert")) {
-                log.info("Skipping message {} due to subject blacklist keyword: {}", messageId, subject);
-                return true;
+                log.info("Categorizing message {} as SPAM (subject blacklist).", messageId);
+                return EmailCategory.SPAM;
             }
         }
 
-        return false;
+        // TODO ezt a részt még át kell gondolni
+        // D) Árajánlat kérés detektálása
+        if (subject != null) {
+            String lowerSubject = subject.toLowerCase();
+            if (lowerSubject.contains("árajánlat") || lowerSubject.contains("quote") ||
+                    lowerSubject.contains("offer") || lowerSubject.contains("ár") ||
+                    lowerSubject.contains("price") || lowerSubject.contains("költség")) {
+                log.info("Categorizing message {} as QUOTE_REQUEST (subject match).", messageId);
+                return EmailCategory.QUOTE_REQUEST;
+            }
+        }
+
+        log.info("Categorizing message {} as OTHER.", messageId);
+        return EmailCategory.OTHER;
+    }
+
+    private OffsetDateTime extractEmailReceivedDate(JsonNode fullJson) {
+        // Olvassuk ki a Gmail belső milliós időbélyegét
+        if (fullJson.hasNonNull("internalDate")) {
+            long internalDateMillis = fullJson.get("internalDate").asLong();
+
+            // Átalakítás Java Instant-tá (UTC alapú pontos időpillanat)
+            return Instant.ofEpochMilli(internalDateMillis)
+                    .atZone(ZoneId.of("Europe/Budapest"))
+                    .toOffsetDateTime();
+        } else {
+            // Biztonsági tartalék, ha valamiért hiányozna (elvileg sosem hiányzik)
+            return OffsetDateTime.now();
+        }
     }
 
     private String extractHeader(JsonNode headers, String headerName) {

@@ -1,16 +1,11 @@
 package com.buildassist.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+import lombok.Data;
+
 import java.time.Instant;
 
+@Data
 @Entity
 @Table(name = "gmail_connections")
 public class GmailConnection {
@@ -35,51 +30,4 @@ public class GmailConnection {
     @Column(name = "token_expires_at", nullable = false)
     private Instant tokenExpiresAt;
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
-    public String getGmailAddress() {
-        return gmailAddress;
-    }
-
-    public void setGmailAddress(String gmailAddress) {
-        this.gmailAddress = gmailAddress;
-    }
-
-    public String getAccessTokenEncrypted() {
-        return accessTokenEncrypted;
-    }
-
-    public void setAccessTokenEncrypted(String accessTokenEncrypted) {
-        this.accessTokenEncrypted = accessTokenEncrypted;
-    }
-
-    public String getRefreshTokenEncrypted() {
-        return refreshTokenEncrypted;
-    }
-
-    public void setRefreshTokenEncrypted(String refreshTokenEncrypted) {
-        this.refreshTokenEncrypted = refreshTokenEncrypted;
-    }
-
-    public Instant getTokenExpiresAt() {
-        return tokenExpiresAt;
-    }
-
-    public void setTokenExpiresAt(Instant tokenExpiresAt) {
-        this.tokenExpiresAt = tokenExpiresAt;
-    }
 }

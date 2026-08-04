@@ -4,6 +4,7 @@ export type EmailSummary = {
   fromAddress: string;
   receivedAt: string;
   replied: boolean;
+  category: "QUOTE_REQUEST" | "SPAM" | "OTHER";
 };
 
 export type EmailDetail = EmailSummary & { bodyText: string };

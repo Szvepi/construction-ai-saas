@@ -8,7 +8,7 @@ import java.util.Optional;
 
 public interface EmailRepository extends JpaRepository<Email, Long> {
 
-    List<Email> findByGmailConnectionIdOrderByReceivedAtDesc(Long gmailConnectionId);
+    List<Email> findByGmailConnectionIdOrderByEmailReceivedAtDesc(Long gmailConnectionId);
 
     Optional<Email> findByIdAndGmailConnectionUserId(Long id, Long userId);
 

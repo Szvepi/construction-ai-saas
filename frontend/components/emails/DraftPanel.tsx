@@ -2,19 +2,22 @@
 
 import { useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
-import type { GenerateDraftResponse } from "@/lib/types";
+import type { EmailDetail, GenerateDraftResponse } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 
 type Props = {
   emailId: number;
+  email?: EmailDetail | null;
   onSent: () => void;
 };
 
-export function DraftPanel({ emailId, onSent }: Props) {
+export function DraftPanel({ emailId, email, onSent }: Props) {
   const [draftId, setDraftId] = useState<number | null>(null);
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isQuoteRequest = email?.category === "QUOTE_REQUEST";
 
   async function generate() {
     setLoading(true);
@@ -50,6 +53,16 @@ export function DraftPanel({ emailId, onSent }: Props) {
     }
   }
 
+  if (!isQuoteRequest) {
+    return (
+      <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm text-amber-800">
+          Az AI válasz generálása csak árajánlat kérésekhez érhető el.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
       <h3 className="font-semibold">Válaszvázlat</h3>
@@ -66,7 +79,7 @@ export function DraftPanel({ emailId, onSent }: Props) {
           />
           <div className="mt-3 flex gap-2">
             <Button onClick={send} disabled={loading || !body.trim()}>
-            Küldés
+              Küldés
             </Button>
           </div>
         </>

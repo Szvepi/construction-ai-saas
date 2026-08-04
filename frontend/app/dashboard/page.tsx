@@ -102,7 +102,7 @@ export default function DashboardPage() {
         {loading ? (
           <p className="text-center text-slate-500">Betöltés…</p>
         ) : (
-          <EmailList emails={emails} />
+          <EmailList emails={emails} onEmailUpdated={() => loadData()} />
         )}
       </div>
     </div>

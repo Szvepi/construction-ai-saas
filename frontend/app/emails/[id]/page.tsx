@@ -58,11 +58,26 @@ export default function EmailDetailPage() {
               {email.subject || "(nincs tárgy)"}
             </h1>
             <p className="mt-1 text-sm text-slate-600">Feladó: {email.fromAddress}</p>
+            <div className="mt-2">
+              <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                email.category === "QUOTE_REQUEST"
+                  ? "bg-blue-100 text-blue-800"
+                  : email.category === "SPAM"
+                    ? "bg-red-100 text-red-800"
+                    : "bg-gray-100 text-gray-800"
+              }`}>
+                {email.category === "QUOTE_REQUEST"
+                  ? "Árajánlat kérés"
+                  : email.category === "SPAM"
+                    ? "Spam"
+                    : "Egyéb"}
+              </span>
+            </div>
             <pre className="mt-4 whitespace-pre-wrap text-sm text-slate-800">
               {email.bodyText}
             </pre>
             {!email.replied && (
-              <DraftPanel emailId={email.id} onSent={() => loadEmail()} />
+              <DraftPanel emailId={email.id} email={email} onSent={() => loadEmail()} />
             )}
             {email.replied && (
               <p className="mt-4 text-sm text-green-700">Erre az e-mailre már válasz érkezett.</p>
