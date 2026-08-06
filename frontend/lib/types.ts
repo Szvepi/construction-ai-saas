@@ -7,7 +7,7 @@ export type EmailSummary = {
   category: "QUOTE_REQUEST" | "SPAM" | "OTHER";
 };
 
-export type EmailDetail = EmailSummary & { bodyText: string };
+export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: GenerateDraftResponse | null };
 
 export type GmailStatus = { connected: boolean; gmailAddress: string | null };
 
