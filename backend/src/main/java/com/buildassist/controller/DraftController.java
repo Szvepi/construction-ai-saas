@@ -1,5 +1,6 @@
 package com.buildassist.controller;
 
+import com.buildassist.dto.DraftDtos;
 import com.buildassist.dto.DraftDtos.SendDraftRequest;
 import com.buildassist.dto.DraftDtos.SendDraftResponse;
 import com.buildassist.dto.DraftDtos.UpdateDraftRequest;
@@ -26,9 +27,9 @@ public class DraftController {
     }
 
     @PostMapping("/generate")
-    public ResponseEntity<?> generate(@PathVariable Long emailId) {
-        aiDraftService.generateAndSaveDraft(emailId, SecurityUtils.currentUserId());
-        return ResponseEntity.ok().build();
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> generate(@PathVariable Long emailId) {
+        DraftDtos.GenerateDraftResponse response = aiDraftService.generateAndSaveDraft(emailId, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{draftId}")

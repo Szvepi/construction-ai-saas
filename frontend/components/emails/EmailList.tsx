@@ -9,15 +9,11 @@ type Props = { emails: EmailSummary[]; onEmailUpdated?: (id: number) => void };
 
 type CategoryFilter = "ALL" | "QUOTE_REQUEST" | "SPAM" | "OTHER";
 
-function getCategoryBadge(category: EmailSummary["category"]) {
-    const badges = {
-        QUOTE_REQUEST: {label: "Árajánlat kérés", color: "bg-blue-100 text-blue-800"},
-        SPAM: {label: "Spam", color: "bg-red-100 text-red-800"},
-        OTHER: {label: "Egyéb", color: "bg-gray-100 text-gray-800"},
-    };
-    const badge = badges[category];
-    return {label: badge.label, color: badge.color};
-}
+const CATEGORY_MAP = {
+    QUOTE_REQUEST: {label: "Árajánlat kérés", color: "bg-blue-100 text-blue-800 border-blue-200"},
+    OTHER: {label: "Egyéb", color: "bg-gray-100 text-gray-800 border-gray-200"},
+    SPAM: {label: "Spam", color: "bg-red-100 text-red-800 border-red-200"},
+};
 
 function formatDate(dateString: string): string {
     const date = new Date(dateString);
@@ -60,9 +56,8 @@ export function EmailList({emails, onEmailUpdated}: Props) {
         }
     }
 
-    function getAvailableCategories(currentCategory: EmailSummary["category"]) {
-        // Only allow changing from QUOTE_REQUEST or SPAM
-        if (currentCategory === "OTHER") return ["SPAM", "QUOTE_REQUEST"];
+    function getAvailableCategories(currentCategory: EmailSummary["category"]): (keyof typeof CATEGORY_MAP)[] {
+        if (currentCategory === "OTHER") return ["QUOTE_REQUEST", "SPAM"];
         if (currentCategory === "QUOTE_REQUEST") return ["SPAM"];
         if (currentCategory === "SPAM") return ["QUOTE_REQUEST"];
         return [];
@@ -77,7 +72,16 @@ export function EmailList({emails, onEmailUpdated}: Props) {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 relative">
+            {/* Láthatatlan háttér (Backdrop) - ha nyitva van egy dropdown, erre kattintva bezáródik */}
+            {openDropdown !== null && (
+                <div
+                    className="fixed inset-0 z-10 bg-transparent"
+                    onClick={() => setOpenDropdown(null)}
+                />
+            )}
+
+            {/* Szűrő gombok / Tabok */}
             <div className="flex flex-wrap gap-2">
                 <button
                     onClick={() => setFilter("ALL")}
@@ -121,87 +125,108 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                 </button>
             </div>
 
+            {/* Email Lista */}
             {filteredEmails.length === 0 ? (
                 <p className="py-8 text-center text-slate-500">Nincsenek e-mailek ebben a kategóriában.</p>
             ) : (
                 <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
                     {filteredEmails.map((email) => {
-                        const badge = getCategoryBadge(email.category);
+                        const badge = CATEGORY_MAP[email.category] || CATEGORY_MAP.OTHER;
                         const availableCategories = getAvailableCategories(email.category);
                         const hasOptions = availableCategories.length > 0;
+                        const isOpen = openDropdown === email.id;
 
                         return (
-                            <li key={email.id}>
-                                <div className="relative">
-                                    <Link
-                                        href={`/emails/${email.id}`}
-                                        className="block px-4 py-3 hover:bg-slate-50"
-                                    >
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <span className="font-medium text-slate-900 line-clamp-1">
-                                                        {email.subject || "(nincs tárgy)"}
-                                                    </span>
-                                                    <span className="shrink-0 text-xs text-slate-500">
-                                                        {formatDate(email.receivedAt)}
-                                                    </span>
-                                                </div>
-                                                <div className="mt-1 flex flex-wrap gap-2 items-center">
+                            <li key={email.id} className="relative">
+                                <Link
+                                    href={`/emails/${email.id}`}
+                                    className="block px-4 py-3 hover:bg-slate-50 transition-colors"
+                                >
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            {/* Fejléc: Tárgy + Dátum */}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-medium text-slate-900 line-clamp-1">
+                                                    {email.subject || "(nincs tárgy)"}
+                                                </span>
+                                                <span className="shrink-0 text-xs text-slate-500">
+                                                    {formatDate(email.receivedAt)}
+                                                </span>
+                                            </div>
+
+                                            {/* Feladó */}
+                                            <p className="mt-0.5 text-xs text-slate-500">{email.fromAddress}</p>
+
+                                            {/* Badgek & Átsorolás Akció */}
+                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <span
+                                                    className={`inline-block rounded px-2 py-0.5 text-xs font-medium border ${badge.color}`}>
+                                                    {badge.label}
+                                                </span>
+
+                                                {email.replied && (
                                                     <span
-                                                        className={`inline-block rounded px-2 py-0.5 text-xs ${badge.color}`}>
-                                                        {badge.label}
+                                                        className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 border border-green-200">
+                                                        Válaszolt
                                                     </span>
-                                                    {email.replied && (
-                                                        <span
-                                                            className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
-                                                            Válaszolt
-                                                        </span>
-                                                    )}
-                                                    {hasOptions && (
+                                                )}
+
+                                                {/* Átsorolás Gomb */}
+                                                {hasOptions && (
+                                                    <div className="ml-auto relative z-20">
                                                         <button
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                setOpenDropdown(openDropdown === email.id ? null : email.id);
+                                                                setOpenDropdown(isOpen ? null : email.id);
                                                             }}
-                                                            className="ml-auto text-xs text-slate-500 hover:text-slate-700 p-1"
-                                                            title="Átsorolás"
+                                                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                            title="Kategória módosítása"
                                                         >
-                                                            ⋯
+                                                            <span>Átsorolás</span>
+                                                            <svg
+                                                                className={`h-3 w-3 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round"
+                                                                      strokeWidth={2} d="M19 9l-7 7-7-7"/>
+                                                            </svg>
                                                         </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <p className="mt-1 text-sm text-slate-600">{email.fromAddress}</p>
-                                    </Link>
 
-                                    {hasOptions && openDropdown === email.id && (
-                                        <div
-                                            className="absolute right-4 top-12 z-10 bg-white border border-slate-200 rounded-lg shadow-md"
-                                            onClick={(e) => e.preventDefault()}
-                                        >
-                                            <div className="py-1">
-                                                {availableCategories.map((cat) => {
-                                                    const catBadge =
-                                                        cat === "QUOTE_REQUEST"
-                                                            ? {label: "Árajánlat kérés", emoji: "→"}
-                                                            : {label: "Spam", emoji: "→"};
-                                                    return (
-                                                        <button
-                                                            key={cat}
-                                                            onClick={(e) => handleCategoryChange(email.id, cat, e)}
-                                                            className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                                                        >
-                                                            {catBadge.emoji} {catBadge.label}
-                                                        </button>
-                                                    );
-                                                })}
+                                                        {/* Dropdown menü */}
+                                                        {isOpen && (
+                                                            <div
+                                                                className="absolute right-0 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 z-30"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    className="px-3 py-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                                                                    Átsorolás ide:
+                                                                </div>
+                                                                {availableCategories.map((catKey) => {
+                                                                    const targetCat = CATEGORY_MAP[catKey];
+                                                                    return (
+                                                                        <button
+                                                                            key={catKey}
+                                                                            onClick={(e) => handleCategoryChange(email.id, catKey, e)}
+                                                                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 transition-colors"
+                                                                        >
+                                                                            <span
+                                                                                className={`h-2 w-2 rounded-full ${targetCat.color.split(" ")[0]}`}/>
+                                                                            {targetCat.label}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
+                                </Link>
                             </li>
                         );
                     })}

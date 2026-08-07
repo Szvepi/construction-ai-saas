@@ -1,5 +1,6 @@
 package com.buildassist.service;
 
+import com.buildassist.dto.DraftDtos;
 import com.buildassist.dto.EmailDtos;
 import com.buildassist.dto.EmailDtos.EmailDetailResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
@@ -7,6 +8,7 @@ import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.model.GmailConnection;
+import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,6 +32,7 @@ import java.util.Optional;
 @Service
 public class EmailService {
 
+    private final EmailDraftRepository emailDraftRepository;
     private final EmailRepository emailRepository;
     private final GmailConnectionRepository gmailConnectionRepository;
     private final GmailService gmailService;
@@ -38,9 +41,11 @@ public class EmailService {
 
     public EmailService(
             EmailRepository emailRepository,
+            EmailDraftRepository emailDraftRepository,
             GmailConnectionRepository gmailConnectionRepository,
             GmailService gmailService) {
         this.emailRepository = emailRepository;
+        this.emailDraftRepository = emailDraftRepository;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gmailService = gmailService;
     }
@@ -82,6 +87,11 @@ public class EmailService {
             throw new IllegalStateException("Email does not belong to user's Gmail connection");
         }
 
+        DraftDtos.GenerateDraftResponse draftEmail =
+                emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(emailId)
+                        .map(draft -> new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody()))
+                        .orElse(null);
+
         return new EmailDetailResponse(
                 email.getId(),
                 email.getSubject(),
@@ -89,7 +99,8 @@ public class EmailService {
                 email.getBodyText(),
                 email.getEmailReceivedAt(),
                 email.isReplied(),
-                email.getCategory());
+                email.getCategory(),
+                draftEmail);
     }
 
     @Transactional

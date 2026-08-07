@@ -1,16 +1,17 @@
 # BuildAssist Email
 
-Ultra-minimal AI email assistant for small construction companies (Hungary). MVP scaffold — business logic is placeholder only.
+Ultra-minimal AI email assistant for small construction companies (Hungary). MVP scaffold — business logic is
+placeholder only.
 
 ## Stack
 
-| Layer | Tech |
-|-------|------|
-| Backend | Spring Boot 3.3, Java 21, PostgreSQL 16, Redis |
-| Frontend | Next.js 14 (App Router), Tailwind CSS |
-| AI | Claude `claude-haiku-4-5` (not wired yet) |
-| Auth | Stateless JWT (24h expiry) |
-| Deploy | Docker Compose + Caddy |
+| Layer    | Tech                                           |
+|----------|------------------------------------------------|
+| Backend  | Spring Boot 3.3, Java 21, PostgreSQL 16, Redis |
+| Frontend | Next.js 14 (App Router), Tailwind CSS          |
+| AI       | Claude `claude-haiku-4-5` (not wired yet)      |
+| Auth     | Stateless JWT (24h expiry)                     |
+| Deploy   | Docker Compose + Caddy                         |
 
 ## Project layout
 
@@ -43,11 +44,11 @@ cp .env.example .env
 
 Use **localhost** for DB/Redis in `.env` (defaults in `application.yml` match):
 
-| Variable | Local dev value |
-|----------|-----------------|
+| Variable       | Local dev value                                |
+|----------------|------------------------------------------------|
 | `DATABASE_URL` | `jdbc:postgresql://localhost:5432/buildassist` |
-| `REDIS_HOST` | `localhost` |
-| `REDIS_PORT` | `6379` |
+| `REDIS_HOST`   | `localhost`                                    |
+| `REDIS_PORT`   | `6379`                                         |
 
 The Docker `app` service overrides these to `postgres` / `redis` hostnames internally.
 
@@ -101,7 +102,7 @@ App: `http://localhost:3000`
 
 ```bash
 cp .env.example .env
-# Set DOMAIN, secrets, Gmail, Anthropic keys
+# Set DOMAIN, secrets, Gmail, OpenAi keys
 
 docker compose up --build
 ```
@@ -110,19 +111,19 @@ Caddy serves the frontend on `/` and proxies `/api/*` to the backend.
 
 ## MVP API routes (scaffold)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/api/auth/register` | Register |
-| POST | `/api/auth/login` | Login → JWT |
-| GET | `/api/gmail/connect` | Gmail OAuth URL |
-| GET | `/api/gmail/callback` | OAuth callback |
-| GET | `/api/gmail/status` | Connection status |
-| GET | `/api/emails` | List emails |
-| GET | `/api/emails/{id}` | Email detail |
-| POST | `/api/emails/refresh` | Fetch last 50 from Gmail |
-| POST | `/api/emails/{id}/drafts/generate` | Claude draft |
-| PUT | `/api/emails/{id}/drafts/{draftId}` | Save draft |
-| POST | `/api/emails/{id}/drafts/{draftId}/send` | Send via Gmail |
+| Method | Path                                     | Purpose                  |
+|--------|------------------------------------------|--------------------------|
+| POST   | `/api/auth/register`                     | Register                 |
+| POST   | `/api/auth/login`                        | Login → JWT              |
+| GET    | `/api/gmail/connect`                     | Gmail OAuth URL          |
+| GET    | `/api/gmail/callback`                    | OAuth callback           |
+| GET    | `/api/gmail/status`                      | Connection status        |
+| GET    | `/api/emails`                            | List emails              |
+| GET    | `/api/emails/{id}`                       | Email detail             |
+| POST   | `/api/emails/refresh`                    | Fetch last 50 from Gmail |
+| POST   | `/api/emails/{id}/drafts/generate`       | Claude draft             |
+| PUT    | `/api/emails/{id}/drafts/{draftId}`      | Save draft               |
+| POST   | `/api/emails/{id}/drafts/{draftId}/send` | Send via Gmail           |
 
 All protected routes except auth and Gmail callback return `501`/placeholder until implemented.
 

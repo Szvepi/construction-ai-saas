@@ -1,7 +1,9 @@
 package com.buildassist.config;
 
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+@Data
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
 
@@ -9,121 +11,34 @@ public class AppProperties {
     private final Cors cors = new Cors();
     private final Encryption encryption = new Encryption();
     private final Gmail gmail = new Gmail();
-    private final Anthropic anthropic = new Anthropic();
+    private final OpenAi openAi = new OpenAi();
     private String frontendUrl;
 
-    public Jwt getJwt() {
-        return jwt;
-    }
-
-    public Cors getCors() {
-        return cors;
-    }
-
-    public Encryption getEncryption() {
-        return encryption;
-    }
-
-    public Gmail getGmail() {
-        return gmail;
-    }
-
-    public Anthropic getAnthropic() {
-        return anthropic;
-    }
-
-    public String getFrontendUrl() {
-        return frontendUrl;
-    }
-
-    public void setFrontendUrl(String frontendUrl) {
-        this.frontendUrl = frontendUrl;
-    }
-
+    @Data
     public static class Jwt {
         private String secret;
         private int expiryHours = 24;
-
-        public String getSecret() {
-            return secret;
-        }
-
-        public void setSecret(String secret) {
-            this.secret = secret;
-        }
-
-        public int getExpiryHours() {
-            return expiryHours;
-        }
-
-        public void setExpiryHours(int expiryHours) {
-            this.expiryHours = expiryHours;
-        }
     }
 
+    @Data
     public static class Cors {
         private String allowedOrigins;
-
-        public String getAllowedOrigins() {
-            return allowedOrigins;
-        }
-
-        public void setAllowedOrigins(String allowedOrigins) {
-            this.allowedOrigins = allowedOrigins;
-        }
     }
 
+    @Data
     public static class Encryption {
         private String aesKey;
-
-        public String getAesKey() {
-            return aesKey;
-        }
-
-        public void setAesKey(String aesKey) {
-            this.aesKey = aesKey;
-        }
     }
 
+    @Data
     public static class Gmail {
         private String clientId;
         private String clientSecret;
         private String redirectUri;
-
-        public String getClientId() {
-            return clientId;
-        }
-
-        public void setClientId(String clientId) {
-            this.clientId = clientId;
-        }
-
-        public String getClientSecret() {
-            return clientSecret;
-        }
-
-        public void setClientSecret(String clientSecret) {
-            this.clientSecret = clientSecret;
-        }
-
-        public String getRedirectUri() {
-            return redirectUri;
-        }
-
-        public void setRedirectUri(String redirectUri) {
-            this.redirectUri = redirectUri;
-        }
     }
 
-    public static class Anthropic {
+    @Data
+    public static class OpenAi {
         private String apiKey;
-
-        public String getApiKey() {
-            return apiKey;
-        }
-
-        public void setApiKey(String apiKey) {
-            this.apiKey = apiKey;
-        }
     }
 }

@@ -4,6 +4,7 @@ import com.buildassist.dto.AiDtos.AiExtractedItem;
 import com.buildassist.dto.AiDtos.AiExtractionResult;
 import com.buildassist.dto.AiDtos.DraftLineItem;
 import com.buildassist.dto.AiDtos.DraftPricingInfo;
+import com.buildassist.dto.DraftDtos;
 import com.buildassist.model.*;
 import com.buildassist.repository.CatalogItemRepository;
 import com.buildassist.repository.EmailDraftRepository;
@@ -81,7 +82,7 @@ public class AiDraftService {
      * @throws RuntimeException         if AI extraction or Gmail API fails
      */
     @Transactional
-    public void generateAndSaveDraft(Long emailId, Long userId) {
+    public DraftDtos.GenerateDraftResponse generateAndSaveDraft(Long emailId, Long userId) {
         logger.info("Starting draft generation for emailId={}, userId={}", emailId, userId);
 
         // Step 1: Fetch email and validate ownership
@@ -120,6 +121,8 @@ public class AiDraftService {
             logger.error("Failed to save draft to Gmail, but draft exists in DB", ex);
             throw new RuntimeException("Failed to save draft to Gmail: " + ex.getMessage(), ex);
         }
+
+        return new DraftDtos.GenerateDraftResponse(savedDraft.getId(), draftHtmlBody);
     }
 
     /**

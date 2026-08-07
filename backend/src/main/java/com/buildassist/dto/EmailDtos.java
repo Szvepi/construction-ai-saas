@@ -1,6 +1,7 @@
 package com.buildassist.dto;
 
 import com.buildassist.model.EmailCategory;
+
 import java.time.OffsetDateTime;
 
 public final class EmailDtos {
@@ -24,7 +25,8 @@ public final class EmailDtos {
             String bodyText,
             OffsetDateTime receivedAt,
             boolean replied,
-            EmailCategory category) {
+            EmailCategory category,
+            DraftDtos.GenerateDraftResponse draftEmail) {
     }
 
     public record RefreshEmailsResponse(int fetchedCount) {
