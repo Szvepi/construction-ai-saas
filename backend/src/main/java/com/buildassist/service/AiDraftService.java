@@ -22,6 +22,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.thymeleaf.context.Context;
+import org.thymeleaf.spring6.SpringTemplateEngine;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
@@ -54,6 +56,7 @@ public class AiDraftService {
     private final TokenEncryptionService tokenEncryptionService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final SpringTemplateEngine templateEngine;
 
     public AiDraftService(
             ChatModel chatModel,
@@ -61,7 +64,8 @@ public class AiDraftService {
             CatalogItemRepository catalogItemRepository,
             GmailConnectionRepository gmailConnectionRepository,
             EmailDraftRepository emailDraftRepository,
-            TokenEncryptionService tokenEncryptionService) {
+            TokenEncryptionService tokenEncryptionService,
+            SpringTemplateEngine templateEngine) {
         this.chatModel = chatModel;
         this.emailRepository = emailRepository;
         this.catalogItemRepository = catalogItemRepository;
@@ -70,6 +74,7 @@ public class AiDraftService {
         this.tokenEncryptionService = tokenEncryptionService;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newHttpClient();
+        this.templateEngine = templateEngine;
     }
 
     /**
@@ -102,7 +107,7 @@ public class AiDraftService {
         DraftPricingInfo pricingInfo = calculatePricing(extractionResult, catalogItems);
 
         // Step 5: Generate HTML draft body
-        String draftHtmlBody = generateDraftHtml(email, pricingInfo);
+        String draftHtmlBody = generateDraftHtml(pricingInfo);
 
         // Step 6: Save draft to database
         EmailDraft emailDraft = new EmailDraft();
@@ -114,7 +119,8 @@ public class AiDraftService {
 
         // Step 7: Save draft to Gmail
         try {
-            saveDraftToGmail(email, draftHtmlBody, userId);
+            // TODO ez nem biztos hogy kell ilyen formában. Lehet hogy csak email küldés lesz egyből.
+//            saveDraftToGmail(email, draftHtmlBody, userId);
             log.info("Draft successfully saved to Gmail");
         } catch (Exception ex) {
             log.error("Failed to save draft to Gmail, but draft exists in DB", ex);
@@ -131,16 +137,6 @@ public class AiDraftService {
     private AiExtractionResult extractItemsFromEmail(Email email, List<CatalogItem> catalogItems) {
         String catalogReference = buildCatalogReference(catalogItems);
         String emailBody = email.getBodyText() != null ? email.getBodyText() : "";
-        String returnSchema = """
-                {
-                    "items": [
-                        {
-                            "catalog_item_id": 123,
-                            "quantity": 40.0
-                        }
-                    ]
-                }
-                """;
 
         // Spring AI strukturált kimenet-konverter
         BeanOutputConverter<AiExtractionResult> outputConverter = new BeanOutputConverter<>(AiExtractionResult.class);
@@ -148,9 +144,6 @@ public class AiDraftService {
         String prompt = """
                         You are a precise data extraction assistant for a Hungarian construction CRM.
                         Analyze the provided HUNGARIAN email body and map ALL requested construction services and materials to the contractor's CATALOG REFERENCE.
-                
-                        Return a JSON object strictly matching this schema:
-                        {returnSchema}
                 
                         CRITICAL RULES:
                         1. Do NOT wrap the response in ```json ... ``` markdown blocks. Return ONLY the raw JSON string.
@@ -177,7 +170,6 @@ public class AiDraftService {
                             .param("catalogReference", catalogReference)
                             .param("format", outputConverter.getFormat())
                             .param("emailBody", emailBody)
-                            .param("returnSchema", returnSchema)
                     )
                     .call()
                     .entity(AiExtractionResult.class);
@@ -208,18 +200,6 @@ public class AiDraftService {
             ));
         }
         return sb.toString();
-    }
-
-    /**
-     * Parses JSON response from LLM.
-     */
-    private AiExtractionResult parseExtractionResponse(String jsonResponse) {
-        try {
-            return objectMapper.readValue(jsonResponse, AiExtractionResult.class);
-        } catch (Exception ex) {
-            log.error("Failed to parse extraction response: {}", jsonResponse, ex);
-            throw new RuntimeException("Failed to parse AI response: " + ex.getMessage(), ex);
-        }
     }
 
     /**
@@ -303,48 +283,29 @@ public class AiDraftService {
     /**
      * Generates a professional HTML email with pricing breakdown.
      */
-    private String generateDraftHtml(Email email, DraftPricingInfo pricing) {
-        StringBuilder html = new StringBuilder();
-        html.append("<html><body style=\"font-family: Arial, sans-serif; color: #333;\">");
-        html.append("<p>Hello,</p>");
-        html.append("<p>Thank you for your inquiry. Based on your request, here is our pricing proposal:</p>");
-        html.append("<br/>");
+    private String generateDraftHtml(DraftPricingInfo pricing) {
+        // Formázó a magyar forintértékekhez (pl. 1 011 750 Ft)
+        java.text.NumberFormat currencyFormat = java.text.NumberFormat.getInstance(new java.util.Locale("hu", "HU"));
+        currencyFormat.setMaximumFractionDigits(0);
 
-        html.append("<table style=\"width: 100%; border-collapse: collapse; margin: 20px 0;\">");
-        html.append("<thead>");
-        html.append("<tr style=\"background-color: #f0f0f0; border-bottom: 2px solid #333;\">");
-        html.append("<th style=\"padding: 10px; text-align: left; border: 1px solid #ddd;\">Item</th>");
-        html.append("<th style=\"padding: 10px; text-align: center; border: 1px solid #ddd;\">Quantity</th>");
-        html.append("<th style=\"padding: 10px; text-align: center; border: 1px solid #ddd;\">Unit</th>");
-        html.append("<th style=\"padding: 10px; text-align: right; border: 1px solid #ddd;\">Unit Price</th>");
-        html.append("<th style=\"padding: 10px; text-align: right; border: 1px solid #ddd;\">Subtotal</th>");
-        html.append("</tr>");
-        html.append("</thead>");
-        html.append("<tbody>");
-
+        List<Map<String, String>> lines = new ArrayList<>();
         for (DraftLineItem item : pricing.items()) {
-            html.append("<tr style=\"border-bottom: 1px solid #ddd;\">");
-            html.append(String.format("<td style=\"padding: 10px; border: 1px solid #ddd;\">%s</td>", escape(item.name())));
-            html.append(String.format("<td style=\"padding: 10px; text-align: center; border: 1px solid #ddd;\">%.2f</td>", item.quantity()));
-            html.append(String.format("<td style=\"padding: 10px; text-align: center; border: 1px solid #ddd;\">%s</td>", escape(item.unit())));
-            html.append(String.format("<td style=\"padding: 10px; text-align: right; border: 1px solid #ddd;\">$%.2f</td>", item.unitPrice()));
-            html.append(String.format("<td style=\"padding: 10px; text-align: right; border: 1px solid #ddd;\"><strong>$%.2f</strong></td>", item.subtotal()));
-            html.append("</tr>");
+            Map<String, String> m = new HashMap<>();
+            m.put("name", escape(item.name()));
+            m.put("quantity", String.format(new java.util.Locale("hu", "HU"), "%.2f", item.quantity()));
+            m.put("unit", escape(item.unit()));
+            m.put("unitPrice", currencyFormat.format(item.unitPrice()));
+            m.put("subtotal", currencyFormat.format(item.subtotal()));
+            lines.add(m);
         }
 
-        html.append("</tbody>");
-        html.append("</table>");
+        String grandTotal = currencyFormat.format(pricing.grandTotal());
 
-        html.append("<div style=\"margin: 20px 0; text-align: right;\">");
-        html.append(String.format("<h3 style=\"margin: 0;\">Total: $%.2f</h3>", pricing.grandTotal()));
-        html.append("</div>");
+        Context ctx = new Context(new java.util.Locale("hu", "HU"));
+        ctx.setVariable("lines", lines);
+        ctx.setVariable("grandTotal", grandTotal);
 
-        html.append("<br/>");
-        html.append("<p>Please let us know if you have any questions or would like to proceed.</p>");
-        html.append("<p>Best regards,<br/>Your Construction Company</p>");
-        html.append("</body></html>");
-
-        return html.toString();
+        return templateEngine.process("draft", ctx);
     }
 
     /**
