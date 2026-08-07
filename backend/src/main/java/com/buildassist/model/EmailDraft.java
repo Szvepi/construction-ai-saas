@@ -43,6 +43,9 @@ public class EmailDraft {
     @Column(name = "sent_at")
     private Instant sentAt;
 
+    @Column(name = "unmapped_requests", columnDefinition = "TEXT")
+    private String unmappedRequestsJson;
+
     public Long getId() {
         return id;
     }
@@ -90,4 +93,25 @@ public class EmailDraft {
     public void setSentAt(Instant sentAt) {
         this.sentAt = sentAt;
     }
+
+    public String getUnmappedRequestsJson() {
+        return unmappedRequestsJson;
+    }
+
+    public void setUnmappedRequestsJson(String unmappedRequestsJson) {
+        this.unmappedRequestsJson = unmappedRequestsJson;
+    }
+
+    public java.util.List<String> getUnmappedRequests() {
+        if (this.unmappedRequestsJson == null || this.unmappedRequestsJson.isBlank()) {
+            return java.util.List.of();
+        }
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            return mapper.readValue(this.unmappedRequestsJson, mapper.getTypeFactory().constructCollectionType(java.util.List.class, String.class));
+        } catch (Exception ex) {
+            return java.util.List.of();
+        }
+    }
 }
+

@@ -95,6 +95,13 @@ public class AiDraftService {
         emailDraft.setEmail(email);
         emailDraft.setDraftBody(draftHtmlBody);
         emailDraft.setStatus(EmailDraft.DraftStatus.DRAFT);
+        try {
+            java.util.List<String> unmapped = extractionResult != null && extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : java.util.List.of();
+            emailDraft.setUnmappedRequestsJson(objectMapper.writeValueAsString(unmapped));
+        } catch (Exception ex) {
+            log.warn("Failed to serialize unmappedRequests for draft: {}", ex.getMessage());
+            emailDraft.setUnmappedRequestsJson(null);
+        }
         EmailDraft savedDraft = emailDraftRepository.save(emailDraft);
 
         // Mentés Gmail vázlatként

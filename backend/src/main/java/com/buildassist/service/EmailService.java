@@ -89,7 +89,7 @@ public class EmailService {
 
         DraftDtos.GenerateDraftResponse draftEmail =
                 emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(emailId)
-                        .map(draft -> new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(), List.of()))
+                        .map(draft -> new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(), draft.getUnmappedRequests()))
                         .orElse(null);
 
         return new EmailDetailResponse(
