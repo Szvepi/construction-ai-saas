@@ -17,12 +17,14 @@ export function DraftPanel({emailId, email, onSent}: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<"preview" | "edit">("preview");
+    const [unmapped, setUnmapped] = useState<string[]>([]);
 
     // Ha a szerveroldalon már létezik draft (korábban generált), jelenítsük meg
     useEffect(() => {
         if (email?.draftEmail) {
             setDraftId(email.draftEmail.draftId);
             setBody(email.draftEmail.draftBody);
+            setUnmapped(email.draftEmail.unmappedRequests ?? []);
             setActiveTab("preview");
         }
     }, [email]);
@@ -39,6 +41,7 @@ export function DraftPanel({emailId, email, onSent}: Props) {
             );
             setDraftId(data.draftId);
             setBody(data.draftBody);
+            setUnmapped(data.unmappedRequests ?? []);
             setActiveTab("preview"); // Generálás után egyből az előnézetet mutatjuk
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "A generálás sikertelen");
@@ -112,11 +115,24 @@ export function DraftPanel({emailId, email, onSent}: Props) {
 
                     {/* Tartalom megjelenítése a kiválasztott Tab alapján */}
                     {activeTab === "preview" ? (
-                        <div
-                            className="mt-3 min-h-[160px] w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800 prose prose-sm max-w-none"
-                            dangerouslySetInnerHTML={{__html: body || "<p className='text-slate-400'>Üres tartalom...</p>"}}
-                        />
-                    ) : (
+                                <>
+                                    {unmapped.length > 0 && (
+                                        <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                                            <strong>Figyelem — ügyfél által kért, de a katalógusban nem található tételek:</strong>
+                                            <ul className="mt-2 list-disc pl-5">
+                                                {unmapped.map((u, idx) => (
+                                                    <li key={idx} className="text-sm">{u}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    <div
+                                        className="mt-3 min-h-[160px] w-full rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800 prose prose-sm max-w-none"
+                                        dangerouslySetInnerHTML={{__html: body || "<p className='text-slate-400'>Üres tartalom...</p>"}}
+                                    />
+                                </>
+                            ) : (
                         <textarea
                             className="mt-3 min-h-[160px] w-full rounded-lg border border-slate-300 p-3 text-sm font-mono text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                             value={body}

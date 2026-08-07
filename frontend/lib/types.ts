@@ -11,7 +11,7 @@ export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: Genera
 
 export type GmailStatus = { connected: boolean; gmailAddress: string | null };
 
-export type GenerateDraftResponse = { draftId: number; draftBody: string };
+export type GenerateDraftResponse = { draftId: number; draftBody: string; unmappedRequests?: string[] };
 
 export type CalculationStrategy =
   | "DIRECT"
