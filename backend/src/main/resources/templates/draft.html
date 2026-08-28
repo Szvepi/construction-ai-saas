@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8"/>
     <title>Árajánlat</title>
 </head>
 <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-<p>Tisztelt Érdeklődő!</p>
+<p>Tisztelt <span th:text="${clientName}">Érdeklődő</span>!</p><br/>
 <p>Köszönjük megkeresését. A megadott paraméterek alapján az alábbi árajánlatot állítottuk össze Önnek:</p>
 <br/>
 
@@ -22,10 +22,15 @@
     <tbody>
     <tr th:each="line : ${lines}" style="border-bottom: 1px solid #e2e8f0;">
         <td style="padding: 10px; border: 1px solid #e2e8f0;"><span th:text="${line.name}">Megnevezés</span></td>
-        <td style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;"><span th:text="${line.quantity}">0.00</span></td>
-        <td style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;"><span th:text="${line.unit}">m2</span></td>
-        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><span th:text="${line.unitPrice}">0</span> Ft</td>
-        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><strong><span th:text="${line.subtotal}">0</span> Ft</strong></td>
+        <td style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;"><span
+                th:text="${line.quantity}">0.00</span></td>
+        <td style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;"><span th:text="${line.unit}">m2</span>
+        </td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><span
+                th:text="${line.unitPrice}">0</span> Ft
+        </td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><strong><span
+                th:text="${line.subtotal}">0</span> Ft</strong></td>
     </tr>
     </tbody>
 </table>
@@ -35,7 +40,13 @@
 </div>
 
 <br/>
-<p>Amennyiben ajánlatunk elnyerte tetszését, vagy kérdése lenne a kivitelezéssel kapcsolatban, készséggel állunk rendelkezésére.</p>
+<p>Jelen árajánlat a kiküldéstől számított 15 napig érvényes.</p>
+<p>A megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot
+    a helyszíni felmérést követően rögzítjük.</p>
+<p>Az árajánlatban szereplő árak az ÁFA-t nem tartalmazzák.</p>
+<br/>
+<p>Amennyiben ajánlatunk elnyerte tetszését, vagy kérdése lenne a kivitelezéssel kapcsolatban, készséggel állunk
+    rendelkezésére.</p>
 
 <p>Üdvözlettel,<br/>
 </p>

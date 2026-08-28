@@ -74,7 +74,7 @@ public class AiDraftService {
         Email email = emailRepository.findByIdAndGmailConnectionUserId(emailId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Email not found or access denied"));
 
-        List<CatalogItem> catalogItems = catalogItemRepository.findByUserId(userId);
+        List<CatalogItem> catalogItems = catalogItemRepository.findAllByUserId(userId);
         if (catalogItems.isEmpty()) {
             throw new IllegalArgumentException("No catalog items found for user");
         }
@@ -96,7 +96,7 @@ public class AiDraftService {
         emailDraft.setDraftBody(draftHtmlBody);
         emailDraft.setStatus(EmailDraft.DraftStatus.DRAFT);
         try {
-            java.util.List<String> unmapped = extractionResult != null && extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : java.util.List.of();
+            java.util.List<String> unmapped = extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : List.of();
             emailDraft.setUnmappedRequestsJson(objectMapper.writeValueAsString(unmapped));
         } catch (Exception ex) {
             log.warn("Failed to serialize unmappedRequests for draft: {}", ex.getMessage());
@@ -112,11 +112,12 @@ public class AiDraftService {
             log.error("Failed to save draft to Gmail, but draft exists in DB", ex);
         }
 
-        return new DraftDtos.GenerateDraftResponse(savedDraft.getId(), draftHtmlBody, extractionResult != null && extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : List.of());
+        return new DraftDtos.GenerateDraftResponse(savedDraft.getId(), draftHtmlBody, extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : List.of());
     }
 
     private AiExtractionResult extractItemsFromEmail(Email email, List<CatalogItem> catalogItems) {
         String catalogReference = buildCatalogReference(catalogItems);
+        log.info("extractItemsFromEmail: catalogReference: {}", catalogReference);
         String emailBody = email.getBodyText() != null ? email.getBodyText() : "";
 
         BeanOutputConverter<AiExtractionResult> outputConverter = new BeanOutputConverter<>(AiExtractionResult.class);
@@ -131,6 +132,17 @@ public class AiDraftService {
                         3. Extract every single requested work item (labor, ground work, base layer, borders, material).
                         4. If the email mentions a room or yard size (e.g., "40 m2-es udvar") but the catalog item requires volume or surface area, extract the number (40) as the quantity.
                         5. UNMAPPED ITEMS: If the client explicitly requests a work item or material that is NOT in the catalog reference (e.g. 'konténer rendelés', 'sitt elszállítás'), list it in the 'unmappedRequests' array.
+                        6. For perimeter/border items, if only total area (m2) is mentioned in the email, extract the total area number as quantity, so our perimeter strategy can calculate it correctly.
+                        7. MANDATORY WORKFLOW DEPENDENCIES (IMPLIED PREPARATION WORK):
+                           Construction services consist of consecutive technological steps. If a primary work type is requested (e.g. 'térkövezés', 'burkolás') and the email DOES NOT explicitly state that preparation work is already done (e.g., "a tükör már ki van ásva", "az alap már kész"):
+                           - You MUST automatically include necessary preparatory and foundational catalog items from the `{catalogReference}` (specifically: ground excavation/preparation ('Tereprendezés és földkiemelés') and sub-base bedding ('Alapozó zúzottkő réteg terítése')).
+                           - Assign the extracted surface area quantity (m2) to these preparatory catalog items as well.
+                
+                        8. SANITY CHECKS & CONTRACTOR REVIEW WARNINGS (`review_warnings`):
+                           Analyze the geometry and technical logic of the request. Generate internal review warnings for the contractor in a dedicated list if you detect potential issues:
+                           - INCOMPLETE PERIMETER / BORDER: If edging/curbing ('szegélykő') is requested for fewer than 4 sides (e.g., "csak 2 oldalra kérek szegélyt") or partial perimeter, AND the email does NOT mention connecting to an existing structure (e.g., house wall, fence, existing paving):
+                             Add a warning: "Az ügyfél csak [X] oldalra kért szegélykövet. Ha a terület nem csatlakozik meglévő építményhez/burkolathoz, a teljes körbekerítéshez több szegélykőre lesz szükség."
+                           - AMBIGUOUS SCOPE: Flag any missing parameters that could change the quote significantly (e.g., unknown ground type, missing depth for excavation).
                 
                         CATALOG REFERENCE (ID - Name - Unit):
                         {catalogReference}
@@ -142,7 +154,7 @@ public class AiDraftService {
                 """;
 
         try {
-            AiExtractionResult result = ChatClient.create(chatModel)
+            String aiResponse = ChatClient.create(chatModel)
                     .prompt()
                     .user(userSpec -> userSpec
                             .text(prompt)
@@ -151,9 +163,12 @@ public class AiDraftService {
                             .param("emailBody", emailBody)
                     )
                     .call()
-                    .entity(AiExtractionResult.class);
+                    .content();
 
-            return result != null ? result : new AiExtractionResult(null, List.of(), List.of());
+            log.info("AI raw response:\n{}", aiResponse);
+            AiExtractionResult result = outputConverter.convert(aiResponse);
+
+            return result != null ? result : new AiExtractionResult(null, List.of(), List.of(), List.of());
         } catch (Exception ex) {
             log.error("AI extraction failed for email id: {}", email.getId(), ex);
             throw new RuntimeException("Failed to extract items using AI: " + ex.getMessage(), ex);

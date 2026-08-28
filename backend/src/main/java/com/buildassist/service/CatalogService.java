@@ -26,7 +26,7 @@ public class CatalogService {
     }
 
     public List<CatalogItemResponse> findItemsByUserId(Long userId) {
-        return catalogItemRepository.findByUserId(userId)
+        return catalogItemRepository.findAllByUserId(userId)
                 .stream()
                 .map(this::toResponse)
                 .toList();

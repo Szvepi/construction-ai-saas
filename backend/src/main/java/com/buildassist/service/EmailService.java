@@ -189,7 +189,6 @@ public class EmailService {
             log.info("Found {} messages to process.", messages.size());
             for (JsonNode msgNode : messages) {
                 String messageId = msgNode.get("id").asText();
-                String threadId = msgNode.get("threadId").asText();
 
                 // Check if already saved
                 log.info("Checking if message {} already exists in the database.", messageId);
@@ -338,7 +337,7 @@ public class EmailService {
         // D) Árajánlat kérés detektálása
         if (subject != null) {
             String lowerSubject = subject.toLowerCase();
-            if (lowerSubject.contains("árajánlat") || lowerSubject.contains("quote") ||
+            if (lowerSubject.contains("árajánlat") || lowerSubject.contains("ajánaltkérés") ||
                     lowerSubject.contains("offer") || lowerSubject.contains("ár") ||
                     lowerSubject.contains("price") || lowerSubject.contains("költség")) {
                 log.info("Categorizing message {} as QUOTE_REQUEST (subject match).", messageId);

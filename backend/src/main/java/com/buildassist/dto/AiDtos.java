@@ -1,6 +1,7 @@
 package com.buildassist.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -24,8 +25,14 @@ public final class AiDtos {
      * Result of AI extraction - structured JSON response from LLM containing list of requested items.
      */
     public record AiExtractionResult(
+            @JsonProperty("client_name")
+            String clientName,
             @JsonProperty("items")
-            List<AiExtractedItem> items
+            List<AiExtractedItem> items,
+            @JsonProperty("unmapped_requests")
+            List<String> unmappedRequests, // Olyan kérések, amik nincsenek a katalógusban
+            @JsonProperty("review_warnings")
+            List<String> reviewWarnings  // Megjegyzések, amikre érdemes figyelni a felhasználónak.
     ) {
     }
 
