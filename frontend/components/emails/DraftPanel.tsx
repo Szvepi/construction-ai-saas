@@ -256,7 +256,7 @@ export function DraftPanel({ emailId, email, onSent }: Props) {
                   </tr>
                 ) : (
                   lineItems.map((item, index) => (
-                    <tr key={`${item.name}-${index}`} className="rounded-lg bg-slate-50 align-top">
+                    <tr key={index} className="rounded-lg bg-slate-50 align-top">
                       <td className="rounded-l-lg px-2 py-2">
                         <input
                           value={item.name}
