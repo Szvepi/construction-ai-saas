@@ -144,6 +144,7 @@ public class AiDraftService {
     }
 
     @Transactional
+    public DraftDtos.GenerateDraftResponse finalizeDraft(Long draftId, DraftDtos.FinalizeDraftRequest request, Long userId) {
         EmailDraft draft = emailDraftRepository.findById(draftId)
                 .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
 
