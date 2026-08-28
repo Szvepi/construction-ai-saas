@@ -209,15 +209,24 @@ export function DraftPanel({ emailId, email, onSent }: Props) {
 
           {unmapped.length > 0 && (
             <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="text-sm font-semibold text-yellow-900">Nincs a katalógusban</h4>
-                <Button variant="secondary" className="!px-3 !py-1.5" onClick={addCustomRow}>
-                  + Hozzáadás egyedi áron
-                </Button>
-              </div>
-              <ul className="mt-2 list-disc pl-5 text-sm text-yellow-900">
+              <h4 className="text-sm font-semibold text-yellow-900">Nincs a katalógusban</h4>
+              <ul className="mt-2 space-y-2 text-sm text-yellow-900">
                 {unmapped.map((item, index) => (
-                  <li key={`${item}-${index}`}>{item}</li>
+                  <li key={`${item}-${index}`} className="flex items-center justify-between gap-2">
+                    <span>{item}</span>
+                    <Button
+                      variant="secondary"
+                      className="!px-3 !py-1.5"
+                      onClick={() => {
+                        setLineItems((current) => [
+                          ...current,
+                          makeRow(item, "db", 1, 0),
+                        ]);
+                      }}
+                    >
+                      Szerkesztés
+                    </Button>
+                  </li>
                 ))}
               </ul>
             </div>
