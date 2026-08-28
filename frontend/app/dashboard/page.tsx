@@ -39,6 +39,19 @@ export default function DashboardPage() {
     }
   }, [router]);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      await apiFetch("/api/emails/refresh", { method: "POST" });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Frissítés sikertelen");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadData]);
+
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/auth/login");
@@ -53,7 +66,7 @@ export default function DashboardPage() {
       setHasRefreshedOnConnect(true);
       handleRefresh();
     }
-  }, [gmailStatus?.connected, emails.length, hasRefreshedOnConnect, loading]);
+  }, [gmailStatus?.connected, emails.length, hasRefreshedOnConnect, loading, handleRefresh]);
 
   async function handleConnect() {
     try {
@@ -63,19 +76,6 @@ export default function DashboardPage() {
       window.location.href = authorizationUrl;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Kapcsolódás sikertelen");
-    }
-  }
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    setError(null);
-    try {
-      await apiFetch("/api/emails/refresh", { method: "POST" });
-      await loadData();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Frissítés sikertelen");
-    } finally {
-      setRefreshing(false);
     }
   }
 

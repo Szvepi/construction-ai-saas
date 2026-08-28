@@ -273,7 +273,7 @@ export default function CatalogSettingsPage() {
                     <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
                         <p className="text-slate-600 font-medium">Még nincsenek elmentett munkafázisok</p>
                         <p className="mt-1 text-sm text-slate-500">
-                            Kattints az "Új munkafázis felvétele" gombra az első tételed rögzítéséhez.
+                            Kattints az &quot;Új munkafázis felvétele&quot; gombra az első tételed rögzítéséhez.
                         </p>
                     </div>
                 ) : (

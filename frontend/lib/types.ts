@@ -11,7 +11,40 @@ export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: Genera
 
 export type GmailStatus = { connected: boolean; gmailAddress: string | null };
 
-export type GenerateDraftResponse = { draftId: number; draftBody: string; unmappedRequests?: string[] };
+export type GenerateDraftResponse = {
+  draftId: number;
+  draftBody: string;
+  unmappedRequests?: string[];
+  reviewWarnings?: string[];
+  lineItems?: DraftLineItem[];
+  clientName?: string | null;
+};
+
+export type DraftLineItem = {
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+};
+
+export type AnalysisResponse = {
+  draftId: number;
+  clientName: string | null;
+  lineItems: DraftLineItem[];
+  unmappedRequests: string[];
+  reviewWarnings: string[];
+};
+
+export type FinalizeDraftRequest = {
+  clientName: string | null;
+  lineItems: DraftLineItem[];
+};
+
+export type SaveDraftRequest = {
+  clientName: string | null;
+  lineItems: DraftLineItem[];
+};
 
 export type CalculationStrategy =
   | "DIRECT"
