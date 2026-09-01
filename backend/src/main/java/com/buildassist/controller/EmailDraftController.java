@@ -33,6 +33,14 @@ public class EmailDraftController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{draftId}/preview")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> previewDraft(
+            @PathVariable Long draftId,
+            @Valid @RequestBody DraftDtos.FinalizeDraftRequest request) {
+        DraftDtos.GenerateDraftResponse response = aiDraftService.previewDraft(draftId, request, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/{draftId}/finalize")
     public ResponseEntity<DraftDtos.GenerateDraftResponse> finalizeDraft(
             @PathVariable Long draftId,

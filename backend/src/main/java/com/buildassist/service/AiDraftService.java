@@ -144,7 +144,7 @@ public class AiDraftService {
     }
 
     @Transactional
-    public DraftDtos.GenerateDraftResponse finalizeDraft(Long draftId, DraftDtos.FinalizeDraftRequest request, Long userId) {
+    public DraftDtos.GenerateDraftResponse previewDraft(Long draftId, DraftDtos.FinalizeDraftRequest request, Long userId) {
         EmailDraft draft = emailDraftRepository.findById(draftId)
                 .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
 
@@ -155,7 +155,7 @@ public class AiDraftService {
         }
 
         if (request == null) {
-            throw new IllegalArgumentException("Finalize request is required");
+            throw new IllegalArgumentException("Preview request is required");
         }
 
         List<DraftLineItem> lineItems = request.lineItems() != null && !request.lineItems().isEmpty()
@@ -170,15 +170,10 @@ public class AiDraftService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         String draftHtmlBody = generateDraftHtml(new DraftPricingInfo(lineItems, total), clientName);
-        try {
-            saveDraftToGmail(email, draftHtmlBody, userId);
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to save finalized draft to Gmail", ex);
-        }
 
+        // Csak menti az adatokat, nem küld emailt
         draft.setDraftBody(draftHtmlBody);
         draft.setClientName(clientName);
-        draft.setStatus(EmailDraft.DraftStatus.READY);
         draft.setLineItemsJson(serializeJsonList(lineItems));
         if (draft.getReviewWarningsJson() == null) {
             draft.setReviewWarningsJson(serializeJsonList(List.of()));
@@ -189,6 +184,36 @@ public class AiDraftService {
         emailDraftRepository.save(draft);
 
         return new DraftDtos.GenerateDraftResponse(draftId, draftHtmlBody, draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName());
+    }
+
+    @Transactional
+    public DraftDtos.GenerateDraftResponse finalizeDraft(Long draftId, DraftDtos.FinalizeDraftRequest request, Long userId) {
+        EmailDraft draft = emailDraftRepository.findById(draftId)
+                .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
+
+        Email email = draft.getEmail();
+        if (email == null || email.getGmailConnection() == null || email.getGmailConnection().getUser() == null
+                || !Objects.equals(email.getGmailConnection().getUser().getId(), userId)) {
+            throw new IllegalArgumentException("Draft not found or access denied");
+        }
+
+        if (draft.getDraftBody() == null || draft.getDraftBody().isBlank()) {
+            throw new IllegalArgumentException("Draft preview must be generated first");
+        }
+
+        // Küld emailt a tárolt draft tartalmával
+        try {
+            saveDraftToGmail(email, draft.getDraftBody(), userId);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to send finalized draft to Gmail", ex);
+        }
+
+        // Frissíti a státuszt
+        draft.setStatus(EmailDraft.DraftStatus.READY);
+        emailDraftRepository.save(draft);
+
+        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName());
+    }
     }
 
     private String serializeJsonList(List<?> items) {
