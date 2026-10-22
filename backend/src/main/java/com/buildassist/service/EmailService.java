@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.EnumMap;
 import java.util.Locale;
@@ -161,7 +162,7 @@ public class EmailService {
                 row.getId(),
                 row.getSubject(),
                 row.getFromAddress(),
-                row.getReceivedAt(),
+                row.getReceivedAt().atOffset(ZoneOffset.UTC),
                 Boolean.TRUE.equals(row.getReplied()),
                 EmailCategory.valueOf(row.getCategory()),
                 row.getDraftStatus() == null ? null : EmailDraft.DraftStatus.valueOf(row.getDraftStatus()));

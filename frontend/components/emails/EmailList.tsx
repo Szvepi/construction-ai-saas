@@ -218,7 +218,7 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
         <section className="space-y-5">
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02]">
                 <div className="border-b border-slate-100 px-4 pt-4 sm:px-6">
-                    <div className="flex gap-1 overflow-x-auto scrollbar-none" role="tablist" aria-label="Levelek kategóriái">
+                    <div className="flex flex-wrap gap-x-1" role="tablist" aria-label="Levelek kategóriái">
                         {tabs.map((tab) => {
                             const active = activeTab === tab.id;
                             return (

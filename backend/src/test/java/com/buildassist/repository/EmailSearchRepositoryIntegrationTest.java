@@ -73,6 +73,7 @@ class EmailSearchRepositoryIntegrationTest {
 
         assertEquals(5, result.getTotalElements());
         assertEquals(5, result.getContent().size());
+        assertEquals(sameReceivedAt.toInstant(), result.getContent().getFirst().getReceivedAt());
         assertEquals("READY", result.getContent().stream()
                 .filter(row -> row.getSubject().equals("100% Masonry offer"))
                 .findFirst().orElseThrow().getDraftStatus());

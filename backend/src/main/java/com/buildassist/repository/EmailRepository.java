@@ -1,7 +1,7 @@
 package com.buildassist.repository;
 
 import com.buildassist.model.Email;
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,7 +17,7 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
         Long getId();
         String getSubject();
         String getFromAddress();
-        OffsetDateTime getReceivedAt();
+        Instant getReceivedAt();
         Boolean getReplied();
         String getCategory();
         String getDraftStatus();

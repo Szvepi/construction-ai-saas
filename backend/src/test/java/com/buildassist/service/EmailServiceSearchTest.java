@@ -10,6 +10,7 @@ import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -110,6 +112,30 @@ class EmailServiceSearchTest {
         assertEquals(2, response.reviewCount());
         verify(emailRepository).searchEmailsDescending(91L, "%roof%", null, "REVIEW", PageRequest.of(0, 25));
         verify(emailRepository).countReviewEmails(91L, "%roof%");
+    }
+
+    @Test
+    void mapsNativeSearchInstantToUtcOffsetDateTime() {
+        GmailConnection connection = new GmailConnection();
+        connection.setId(63L);
+        EmailRepository.SearchRow row = org.mockito.Mockito.mock(EmailRepository.SearchRow.class);
+        Instant receivedAt = Instant.parse("2026-10-22T14:15:16Z");
+        when(row.getId()).thenReturn(22L);
+        when(row.getSubject()).thenReturn("Test subject");
+        when(row.getFromAddress()).thenReturn("sender@example.com");
+        when(row.getReceivedAt()).thenReturn(receivedAt);
+        when(row.getReplied()).thenReturn(false);
+        when(row.getCategory()).thenReturn("SPAM");
+        when(emailRepository.searchEmailsDescending(eq(63L), any(), eq("SPAM"), eq(null), any()))
+                .thenReturn(new PageImpl<>(List.of(row), PageRequest.of(0, 25), 1));
+        when(gmailConnectionRepository.findByUserId(9L)).thenReturn(Optional.of(connection));
+        when(emailRepository.countSearchEmailsByCategory(63L, null)).thenReturn(List.of());
+        when(emailRepository.countReviewEmails(63L, null)).thenReturn(0L);
+
+        var response = emailService.searchEmails(9L, null, EmailCategory.SPAM, null, 0, 25, "desc");
+
+        assertEquals(OffsetDateTime.of(2026, 10, 22, 14, 15, 16, 0, ZoneOffset.UTC),
+                response.content().getFirst().receivedAt());
     }
 
     @Test
