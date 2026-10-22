@@ -18,7 +18,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -53,12 +52,18 @@ class EmailSearchRepositoryIntegrationTest {
                 sameReceivedAt, EmailCategory.OTHER);
         Email spamEmail = saveEmail(ownConnection, "Newsletter", "news@example.com",
                 sameReceivedAt, EmailCategory.SPAM);
+        Email reviewEmail = saveEmail(ownConnection, "Current review", "review@example.com",
+                sameReceivedAt, EmailCategory.QUOTE_REQUEST);
+        Email draftReviewEmail = saveEmail(ownConnection, "Draft review", "draft-review@example.com",
+                sameReceivedAt, EmailCategory.QUOTE_REQUEST);
         saveEmail(otherConnection, "Masonry offer", "quotes@example.com",
                 sameReceivedAt, EmailCategory.QUOTE_REQUEST);
 
         saveDraft(quoteEmail, EmailDraft.DraftStatus.DRAFT, Instant.parse("2026-10-20T10:00:00Z"));
         saveDraft(quoteEmail, EmailDraft.DraftStatus.READY, Instant.parse("2026-10-20T11:00:00Z"));
         saveDraft(spamEmail, EmailDraft.DraftStatus.DRAFT, Instant.parse("2026-10-20T10:00:00Z"));
+        saveDraft(reviewEmail, EmailDraft.DraftStatus.PENDING_REVIEW, Instant.parse("2026-10-20T12:00:00Z"));
+        saveDraft(draftReviewEmail, EmailDraft.DraftStatus.DRAFT, Instant.parse("2026-10-20T13:00:00Z"));
     }
 
     @Test
@@ -66,15 +71,16 @@ class EmailSearchRepositoryIntegrationTest {
         Page<EmailRepository.SearchRow> result = emailRepository.searchEmailsDescending(
                 ownConnection.getId(), null, null, null, PageRequest.of(0, 25));
 
-        assertEquals(3, result.getTotalElements());
-        assertEquals(3, result.getContent().size());
+        assertEquals(5, result.getTotalElements());
+        assertEquals(5, result.getContent().size());
         assertEquals("READY", result.getContent().stream()
                 .filter(row -> row.getSubject().equals("100% Masonry offer"))
                 .findFirst().orElseThrow().getDraftStatus());
-        assertEquals(1L, emailRepository.countSearchEmailsByCategory(
-                ownConnection.getId(), null, null).stream()
+        assertEquals(3L, emailRepository.countSearchEmailsByCategory(
+                ownConnection.getId(), null).stream()
                 .filter(count -> count.getCategory().equals("QUOTE_REQUEST"))
                 .findFirst().orElseThrow().getCount());
+        assertEquals(2L, emailRepository.countReviewEmails(ownConnection.getId(), null));
     }
 
     @Test
@@ -96,11 +102,15 @@ class EmailSearchRepositoryIntegrationTest {
                 ownConnection.getId(), null, "QUOTE_REQUEST", "READY", PageRequest.of(0, 25));
         Page<EmailRepository.SearchRow> oldDrafts = emailRepository.searchEmailsDescending(
                 ownConnection.getId(), null, null, "DRAFT", PageRequest.of(0, 25));
+        Page<EmailRepository.SearchRow> review = emailRepository.searchEmailsDescending(
+                ownConnection.getId(), null, "QUOTE_REQUEST", "REVIEW", PageRequest.of(0, 25));
 
         assertEquals(1, readyQuotes.getTotalElements());
         assertEquals("100% Masonry offer", readyQuotes.getContent().getFirst().getSubject());
-        assertEquals(1, oldDrafts.getTotalElements());
-        assertEquals("Newsletter", oldDrafts.getContent().getFirst().getSubject());
+        assertEquals(2, oldDrafts.getTotalElements());
+        assertEquals("Draft review", oldDrafts.getContent().getFirst().getSubject());
+        assertEquals(2, review.getTotalElements());
+        assertEquals("Draft review", review.getContent().getFirst().getSubject());
     }
 
     @Test
@@ -109,32 +119,35 @@ class EmailSearchRepositoryIntegrationTest {
                 ownConnection.getId(), null, null, null, PageRequest.of(0, 2));
         Page<EmailRepository.SearchRow> descendingSecondPage = emailRepository.searchEmailsDescending(
                 ownConnection.getId(), null, null, null, PageRequest.of(1, 2));
+        Page<EmailRepository.SearchRow> descendingThirdPage = emailRepository.searchEmailsDescending(
+                ownConnection.getId(), null, null, null, PageRequest.of(2, 2));
         Page<EmailRepository.SearchRow> ascending = emailRepository.searchEmailsAscending(
                 ownConnection.getId(), null, null, null, PageRequest.of(0, 25));
 
-        assertEquals(3, descendingFirstPage.getTotalElements());
+        assertEquals(5, descendingFirstPage.getTotalElements());
         assertEquals(2, descendingFirstPage.getContent().size());
-        assertEquals(2, descendingFirstPage.getTotalPages());
-        assertEquals(1, descendingSecondPage.getContent().size());
+        assertEquals(3, descendingFirstPage.getTotalPages());
+        assertEquals(2, descendingSecondPage.getContent().size());
         assertEquals(descendingFirstPage.getContent().get(0).getId() - 1,
                 descendingFirstPage.getContent().get(1).getId());
         assertEquals(descendingFirstPage.getContent().get(1).getId() - 1,
                 descendingSecondPage.getContent().getFirst().getId());
-        assertEquals(descendingSecondPage.getContent().getFirst().getId(),
+        assertEquals(descendingThirdPage.getContent().getFirst().getId(),
                 ascending.getContent().getFirst().getId());
     }
 
     @Test
-    void categoryCountsFollowSearchAndDraftStatusButIgnoreSelectedCategory() {
+    void tabCountsFollowSearchButIgnoreActiveCategoryAndDraftFilters() {
         List<EmailRepository.CategoryCount> counts =
-                emailRepository.countSearchEmailsByCategory(ownConnection.getId(), "%example.com%", "DRAFT");
+                emailRepository.countSearchEmailsByCategory(ownConnection.getId(), "%example.com%");
 
         assertEquals(1L, counts.stream()
                 .filter(count -> count.getCategory().equals("SPAM"))
                 .findFirst().orElseThrow().getCount());
-        assertNull(counts.stream()
+        assertEquals(3L, counts.stream()
                 .filter(count -> count.getCategory().equals("QUOTE_REQUEST"))
-                .findFirst().orElse(null));
+                .findFirst().orElseThrow().getCount());
+        assertEquals(2L, emailRepository.countReviewEmails(ownConnection.getId(), "%example.com%"));
     }
 
     private Page<EmailRepository.SearchRow> search(String pattern, String category) {

@@ -92,7 +92,7 @@ public class EmailService {
             Long userId,
             String query,
             EmailCategory category,
-            EmailDraft.DraftStatus draftStatus,
+            String draftStatus,
             int pageNumber,
             int pageSize,
             String direction) {
@@ -105,30 +105,31 @@ public class EmailService {
         if (direction == null || !(direction.equalsIgnoreCase("asc") || direction.equalsIgnoreCase("desc"))) {
             throw new IllegalArgumentException("direction must be 'asc' or 'desc'");
         }
+        validateDraftStatus(draftStatus);
 
         String searchPattern = toSearchPattern(query);
         Map<EmailCategory, Long> categoryCounts = emptyCategoryCounts();
         Optional<GmailConnection> gmailConnection = gmailConnectionRepository.findByUserId(userId);
         if (gmailConnection.isEmpty()) {
             return new EmailSearchResponse(
-                    List.of(), pageNumber, pageSize, 0, 0, categoryCounts);
+                    List.of(), pageNumber, pageSize, 0, 0, categoryCounts, 0);
         }
 
         Long gmailConnectionId = gmailConnection.get().getId();
         String categoryName = category == null ? null : category.name();
-        String draftStatusName = draftStatus == null ? null : draftStatus.name();
         Pageable pageable = PageRequest.of(pageNumber, pageSize);
         Page<SearchRow> results = direction.equalsIgnoreCase("asc")
                 ? emailRepository.searchEmailsAscending(
-                        gmailConnectionId, searchPattern, categoryName, draftStatusName, pageable)
+                        gmailConnectionId, searchPattern, categoryName, draftStatus, pageable)
                 : emailRepository.searchEmailsDescending(
-                        gmailConnectionId, searchPattern, categoryName, draftStatusName, pageable);
+                        gmailConnectionId, searchPattern, categoryName, draftStatus, pageable);
 
         List<CategoryCount> counts = emailRepository.countSearchEmailsByCategory(
-                gmailConnectionId, searchPattern, draftStatusName);
+                gmailConnectionId, searchPattern);
         for (CategoryCount count : counts) {
             categoryCounts.put(EmailCategory.valueOf(count.getCategory()), count.getCount());
         }
+        long reviewCount = emailRepository.countReviewEmails(gmailConnectionId, searchPattern);
 
         List<EmailSummaryResponse> content = results.getContent().stream()
                 .map(this::toSummaryResponse)
@@ -140,7 +141,19 @@ public class EmailService {
                 results.getSize(),
                 results.getTotalElements(),
                 results.getTotalPages(),
-                categoryCounts);
+                categoryCounts,
+                reviewCount);
+    }
+
+    private void validateDraftStatus(String draftStatus) {
+        if (draftStatus == null || draftStatus.equals("REVIEW")) {
+            return;
+        }
+        try {
+            EmailDraft.DraftStatus.valueOf(draftStatus);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Unsupported draftStatus: " + draftStatus);
+        }
     }
 
     private EmailSummaryResponse toSummaryResponse(SearchRow row) {

@@ -8,6 +8,16 @@ export type EmailSummary = {
   draftStatus: "DRAFT" | "PENDING_REVIEW" | "READY" | "SENT" | null;
 };
 
+export type EmailSearchResponse = {
+  content: EmailSummary[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  categoryCounts: Record<EmailSummary["category"], number>;
+  reviewCount: number;
+};
+
 export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: GenerateDraftResponse | null };
 
 export type GmailStatus = { connected: boolean; gmailAddress: string | null };

@@ -50,7 +50,18 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
                    OR LOWER(e.subject) LIKE :searchPattern ESCAPE '!'
                    OR LOWER(e.from_address) LIKE :searchPattern ESCAPE '!')
               AND (CAST(:category AS VARCHAR) IS NULL OR e.category = :category)
-              AND (CAST(:draftStatus AS VARCHAR) IS NULL OR latest.status = :draftStatus)
+              AND (
+                  CAST(:draftStatus AS VARCHAR) IS NULL
+                  OR (
+                      CAST(:draftStatus AS VARCHAR) = 'REVIEW'
+                      AND e.category = 'QUOTE_REQUEST'
+                      AND latest.status IN ('DRAFT', 'PENDING_REVIEW')
+                  )
+                  OR (
+                      CAST(:draftStatus AS VARCHAR) <> 'REVIEW'
+                      AND latest.status = :draftStatus
+                  )
+              )
             """;
 
     String SEARCH_SELECT = """
@@ -88,6 +99,20 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
     @Query(value = """
             SELECT e.category AS "category", COUNT(*) AS "count"
             FROM emails e
+            WHERE e.gmail_connection_id = :gmailConnectionId
+              AND (CAST(:searchPattern AS VARCHAR) IS NULL
+                   OR LOWER(e.subject) LIKE :searchPattern ESCAPE '!'
+                   OR LOWER(e.from_address) LIKE :searchPattern ESCAPE '!')
+            GROUP BY e.category
+            """,
+            nativeQuery = true)
+    List<CategoryCount> countSearchEmailsByCategory(
+            @Param("gmailConnectionId") Long gmailConnectionId,
+            @Param("searchPattern") String searchPattern);
+
+    @Query(value = """
+            SELECT COUNT(*)
+            FROM emails e
             LEFT JOIN LATERAL (
                 SELECT d.status
                 FROM email_drafts d
@@ -99,12 +124,11 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
               AND (CAST(:searchPattern AS VARCHAR) IS NULL
                    OR LOWER(e.subject) LIKE :searchPattern ESCAPE '!'
                    OR LOWER(e.from_address) LIKE :searchPattern ESCAPE '!')
-              AND (CAST(:draftStatus AS VARCHAR) IS NULL OR latest.status = :draftStatus)
-            GROUP BY e.category
+              AND e.category = 'QUOTE_REQUEST'
+              AND latest.status IN ('DRAFT', 'PENDING_REVIEW')
             """,
             nativeQuery = true)
-    List<CategoryCount> countSearchEmailsByCategory(
+    long countReviewEmails(
             @Param("gmailConnectionId") Long gmailConnectionId,
-            @Param("searchPattern") String searchPattern,
-            @Param("draftStatus") String draftStatus);
+            @Param("searchPattern") String searchPattern);
 }

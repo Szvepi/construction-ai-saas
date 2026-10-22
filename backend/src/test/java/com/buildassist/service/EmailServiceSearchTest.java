@@ -62,16 +62,18 @@ class EmailServiceSearchTest {
         when(emailRepository.searchEmailsAscending(eq(77L), eq("%a!!b!%!_%"), eq("QUOTE_REQUEST"),
                 eq("PENDING_REVIEW"), any()))
                 .thenReturn(Page.empty(PageRequest.of(0, 25)));
-        when(emailRepository.countSearchEmailsByCategory(77L, "%a!!b!%!_%", "PENDING_REVIEW"))
+        when(emailRepository.countSearchEmailsByCategory(77L, "%a!!b!%!_%"))
                 .thenReturn(List.of());
+        when(emailRepository.countReviewEmails(77L, "%a!!b!%!_%")).thenReturn(3L);
 
         var response = emailService.searchEmails(
                 5L, " A!B%_ ", EmailCategory.QUOTE_REQUEST,
-                EmailDraft.DraftStatus.PENDING_REVIEW, 0, 25, "ASC");
+                "PENDING_REVIEW", 0, 25, "ASC");
 
         assertEquals(0, response.totalElements());
         assertEquals(0, response.categoryCounts().get(EmailCategory.QUOTE_REQUEST));
         assertEquals(3, response.categoryCounts().size());
+        assertEquals(3, response.reviewCount());
         verify(gmailConnectionRepository).findByUserId(5L);
         verify(emailRepository).searchEmailsAscending(eq(77L), any(), any(), any(), any());
         verify(emailDraftRepository, never()).findTopByEmailIdOrderByCreatedAtDesc(any());
@@ -88,7 +90,26 @@ class EmailServiceSearchTest {
         assertEquals(0, response.totalElements());
         verify(emailRepository, never()).searchEmailsAscending(any(), any(), any(), any(), any());
         verify(emailRepository, never()).searchEmailsDescending(any(), any(), any(), any(), any());
-        verify(emailRepository, never()).countSearchEmailsByCategory(any(), any(), any());
+        verify(emailRepository, never()).countSearchEmailsByCategory(any(), any());
+        verify(emailRepository, never()).countReviewEmails(any(), any());
+    }
+
+    @Test
+    void reviewFilterAndCounterUseAuthenticatedUsersConnection() {
+        GmailConnection connection = new GmailConnection();
+        connection.setId(91L);
+        when(gmailConnectionRepository.findByUserId(14L)).thenReturn(Optional.of(connection));
+        when(emailRepository.searchEmailsDescending(eq(91L), eq("%roof%"),
+                eq(null), eq("REVIEW"), any()))
+                .thenReturn(Page.empty(PageRequest.of(0, 25)));
+        when(emailRepository.countSearchEmailsByCategory(91L, "%roof%")).thenReturn(List.of());
+        when(emailRepository.countReviewEmails(91L, "%roof%")).thenReturn(2L);
+
+        var response = emailService.searchEmails(14L, "roof", null, "REVIEW", 0, 25, "desc");
+
+        assertEquals(2, response.reviewCount());
+        verify(emailRepository).searchEmailsDescending(91L, "%roof%", null, "REVIEW", PageRequest.of(0, 25));
+        verify(emailRepository).countReviewEmails(91L, "%roof%");
     }
 
     @Test
@@ -99,6 +120,8 @@ class EmailServiceSearchTest {
                 () -> emailService.searchEmails(1L, null, null, null, 0, 101, "desc"));
         assertThrows(IllegalArgumentException.class,
                 () -> emailService.searchEmails(1L, null, null, null, 0, 25, "receivedAt"));
+        assertThrows(IllegalArgumentException.class,
+                () -> emailService.searchEmails(1L, null, null, "UNKNOWN", 0, 25, "desc"));
     }
 
     @Test

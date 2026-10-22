@@ -6,7 +6,6 @@ import com.buildassist.dto.EmailDtos.EmailSearchResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
 import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.EmailCategory;
-import com.buildassist.model.EmailDraft;
 import com.buildassist.security.SecurityUtils;
 import com.buildassist.service.EmailService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,7 +39,7 @@ public class EmailController {
     public EmailSearchResponse search(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) EmailCategory category,
-            @RequestParam(required = false) EmailDraft.DraftStatus draftStatus,
+            @RequestParam(required = false) String draftStatus,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size,
             @RequestParam(defaultValue = "desc") String direction) {

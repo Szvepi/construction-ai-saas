@@ -28,7 +28,8 @@ public final class EmailDtos {
             int size,
             long totalElements,
             int totalPages,
-            Map<EmailCategory, Long> categoryCounts) {
+            Map<EmailCategory, Long> categoryCounts,
+            long reviewCount) {
     }
 
     public record EmailDetailResponse(
