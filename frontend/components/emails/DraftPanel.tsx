@@ -3,18 +3,23 @@
 import {useEffect, useMemo, useState} from "react";
 import {ApiError, apiFetch, apiFetchBlob} from "@/lib/api";
 import type {AnalysisResponse, DraftLineItem, EmailDetail, GenerateDraftResponse} from "@/lib/types";
-import {Button} from "@/components/ui/Button";
+import {DraftActions, type DraftAction} from "@/components/emails/DraftActions";
+import {DraftAnalysisPanel} from "@/components/emails/DraftAnalysisPanel";
+import {QuoteLineItemsEditor} from "@/components/emails/QuoteLineItemsEditor";
 
 type Props = {
     emailId: number;
     email?: EmailDetail | null;
     onSent: () => void;
+    onDirtyChange?: (dirty: boolean) => void;
 };
 
-const currencyFormatter = new Intl.NumberFormat("hu-HU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-});
+type DraftFields = {
+    clientName: string;
+    additionalNotes: string;
+    includeAdditionalNotes: boolean;
+    lineItems: DraftLineItem[];
+};
 
 function makeRow(name = "", unit = "m2", quantity = 1, unitPrice = 0): DraftLineItem {
     return {
@@ -26,11 +31,18 @@ function makeRow(name = "", unit = "m2", quantity = 1, unitPrice = 0): DraftLine
     };
 }
 
-function capitalizeFirstLetter(value: string): string {
-    return value.charAt(0).toLocaleUpperCase("hu-HU") + value.slice(1);
+function snapshot(fields: DraftFields): string {
+    return JSON.stringify(fields);
 }
 
-export function DraftPanel({emailId, email, onSent}: Props) {
+function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLineItem[] {
+    return (items ?? []).map((item) => ({
+        ...item,
+        subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
+    }));
+}
+
+export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
     const [draftId, setDraftId] = useState<number | null>(null);
     const [clientName, setClientName] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
@@ -41,31 +53,50 @@ export function DraftPanel({emailId, email, onSent}: Props) {
     const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
     const [body, setBody] = useState("");
     const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [busyAction, setBusyAction] = useState<DraftAction>(null);
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const [previewGenerated, setPreviewGenerated] = useState(false);
+    const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+
+    const currentSnapshot = useMemo(() => snapshot({
+        clientName,
+        additionalNotes,
+        includeAdditionalNotes,
+        lineItems,
+    }), [clientName, additionalNotes, includeAdditionalNotes, lineItems]);
+    const isDirty = savedSnapshot !== null && currentSnapshot !== savedSnapshot;
+
+    useEffect(() => {
+        onDirtyChange?.(isDirty);
+    }, [isDirty, onDirtyChange]);
 
     useEffect(() => {
         let active = true;
+        const currentEmail = email;
 
-        if (email?.draftEmail) {
-            setDraftId(email.draftEmail.draftId);
-            setBody(email.draftEmail.draftBody);
+        if (currentEmail?.draftEmail) {
+            const items = normalizeLineItems(currentEmail.draftEmail.lineItems);
+            const initialFields: DraftFields = {
+                clientName: currentEmail.draftEmail.clientName ?? "",
+                additionalNotes: currentEmail.draftEmail.additionalNotes ?? "",
+                includeAdditionalNotes: currentEmail.draftEmail.includeAdditionalNotes ?? true,
+                lineItems: items,
+            };
+            setDraftId(currentEmail.draftEmail.draftId);
+            setBody(currentEmail.draftEmail.draftBody);
             setPreviewGenerated(false);
             setPdfUrl(null);
-            setClientName(email.draftEmail.clientName ?? "");
-            setAdditionalNotes(email.draftEmail.additionalNotes ?? "");
-            setIncludeAdditionalNotes(email.draftEmail.includeAdditionalNotes ?? true);
-            setVatRegistered(email.draftEmail.vatRegistered ?? false);
-            setUnmapped(email.draftEmail.unmappedRequests ?? []);
-            setReviewWarnings(email.draftEmail.reviewWarnings ?? []);
-            setLineItems((email.draftEmail.lineItems ?? []).map((item) => ({
-                ...item,
-                subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
-            })));
-            if (email.draftEmail.draftBody) {
-                apiFetchBlob(`/api/drafts/${email.draftEmail.draftId}/pdf`)
+            setClientName(initialFields.clientName);
+            setAdditionalNotes(initialFields.additionalNotes);
+            setIncludeAdditionalNotes(initialFields.includeAdditionalNotes);
+            setVatRegistered(currentEmail.draftEmail.vatRegistered ?? false);
+            setUnmapped(currentEmail.draftEmail.unmappedRequests ?? []);
+            setReviewWarnings(currentEmail.draftEmail.reviewWarnings ?? []);
+            setLineItems(items);
+            setSavedSnapshot(snapshot(initialFields));
+            if (currentEmail.draftEmail.draftBody) {
+                apiFetchBlob(`/api/drafts/${currentEmail.draftEmail.draftId}/pdf`)
                     .then((blob) => {
                         if (!active) return;
                         setPdfUrl(URL.createObjectURL(blob));
@@ -81,18 +112,27 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                     });
             }
         } else {
+            const emptyFields: DraftFields = {
+                clientName: "",
+                additionalNotes: "",
+                includeAdditionalNotes: true,
+                lineItems: [],
+            };
             setDraftId(null);
             setBody("");
             setPdfUrl(null);
             setPreviewGenerated(false);
-            setClientName("");
-            setAdditionalNotes("");
-            setIncludeAdditionalNotes(true);
+            setClientName(emptyFields.clientName);
+            setAdditionalNotes(emptyFields.additionalNotes);
+            setIncludeAdditionalNotes(emptyFields.includeAdditionalNotes);
             setVatRegistered(false);
             setReviewWarnings([]);
             setUnmapped([]);
             setLineItems([]);
+            setSavedSnapshot(snapshot(emptyFields));
         }
+        setError(null);
+        setSaveSuccess(null);
         return () => {
             active = false;
         };
@@ -116,7 +156,10 @@ export function DraftPanel({emailId, email, onSent}: Props) {
     const isQuoteRequest = email?.category === "QUOTE_REQUEST";
 
     async function analyze() {
-        setLoading(true);
+        if (draftId && isDirty && !window.confirm("Az új AI-elemzés felülírhatja a jelenlegi módosításokat. Folytatod?")) {
+            return;
+        }
+        setBusyAction("analyze");
         setError(null);
         setSaveSuccess(null);
         try {
@@ -124,56 +167,78 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                 method: "POST",
                 body: {additionalNotes},
             });
+            const items = normalizeLineItems(data.lineItems);
+            const fields: DraftFields = {
+                clientName: data.clientName ?? "",
+                additionalNotes: data.additionalNotes ?? "",
+                includeAdditionalNotes: data.includeAdditionalNotes ?? true,
+                lineItems: items,
+            };
             setDraftId(data.draftId);
-            setClientName(data.clientName ?? "");
-            setAdditionalNotes(data.additionalNotes ?? "");
+            setClientName(fields.clientName);
+            setAdditionalNotes(fields.additionalNotes);
             setVatRegistered(data.vatRegistered ?? false);
             setReviewWarnings(data.reviewWarnings ?? []);
             setUnmapped(data.unmappedRequests ?? []);
-            setLineItems((data.lineItems ?? []).map((item) => ({
-                ...item,
-                subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
-            })));
+            setLineItems(items);
             setBody("");
             setPdfUrl(null);
             setPreviewGenerated(false);
+            setSavedSnapshot(snapshot(fields));
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "Az elemzés sikertelen");
         } finally {
-            setLoading(false);
+            setBusyAction(null);
         }
+    }
+
+    function buildPayload() {
+        return {
+            clientName: clientName || email?.fromAddress || "Érdeklődő",
+            additionalNotes,
+            includeAdditionalNotes,
+            lineItems: lineItems.map((item) => ({
+                ...item,
+                quantity: Number(item.quantity || 0),
+                unitPrice: Number(item.unitPrice || 0),
+                subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+            })),
+        };
+    }
+
+    function applySavedDraft(data: GenerateDraftResponse) {
+        const fields: DraftFields = {
+            clientName: data.clientName ?? "",
+            additionalNotes: data.additionalNotes ?? "",
+            includeAdditionalNotes: data.includeAdditionalNotes ?? true,
+            lineItems: normalizeLineItems(data.lineItems),
+        };
+        setClientName(fields.clientName);
+        setAdditionalNotes(fields.additionalNotes);
+        setIncludeAdditionalNotes(fields.includeAdditionalNotes);
+        setVatRegistered(data.vatRegistered ?? false);
+        setLineItems(fields.lineItems);
+        setSavedSnapshot(snapshot(fields));
     }
 
     async function save() {
         if (!draftId) return;
-        setLoading(true);
+        const payload = buildPayload();
+        setBusyAction("save");
         setError(null);
         setSaveSuccess(null);
 
         try {
-            const payload = {
-                clientName: clientName || email?.fromAddress || "Érdeklődő",
-                additionalNotes,
-                includeAdditionalNotes,
-                lineItems: lineItems.map((item) => ({
-                    ...item,
-                    quantity: Number(item.quantity || 0),
-                    unitPrice: Number(item.unitPrice || 0),
-                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
-                })),
-            };
-
-            await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/save`, {
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/save`, {
                 method: "POST",
                 body: payload,
             });
-
-            setSaveSuccess("A módosítások mentésre kerültek!");
-            setTimeout(() => setSaveSuccess(null), 3000);
+            applySavedDraft(data);
+            setSaveSuccess("A módosítások mentésre kerültek.");
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "A mentés sikertelen");
         } finally {
-            setLoading(false);
+            setBusyAction(null);
         }
     }
 
@@ -199,9 +264,9 @@ export function DraftPanel({emailId, email, onSent}: Props) {
         });
     }
 
-    function addCustomRow() {
+    function addCustomRow(name = "Egyedi tétel", unit = "db") {
         setPreviewGenerated(false);
-        setLineItems((current) => [...current, makeRow("Egyedi tétel", "db", 1, 0)]);
+        setLineItems((current) => [...current, makeRow(name, unit, 1, 0)]);
     }
 
     function removeLineItem(index: number) {
@@ -211,328 +276,155 @@ export function DraftPanel({emailId, email, onSent}: Props) {
 
     async function preview() {
         if (!draftId) return;
-        setLoading(true);
+        const payload = buildPayload();
+        setBusyAction("preview");
         setError(null);
         setSaveSuccess(null);
 
         try {
-            const payload = {
-                clientName: clientName || email?.fromAddress || "Érdeklődő",
-                additionalNotes,
-                includeAdditionalNotes,
-                lineItems: lineItems.map((item) => ({
-                    ...item,
-                    quantity: Number(item.quantity || 0),
-                    unitPrice: Number(item.unitPrice || 0),
-                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
-                })),
-            };
-
             const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/preview`, {
                 method: "POST",
                 body: payload,
             });
-
             setBody(data.draftBody ?? "");
+            applySavedDraft(data);
             const pdf = await apiFetchBlob(`/api/drafts/${draftId}/pdf`);
             setPdfUrl(URL.createObjectURL(pdf));
             setPreviewGenerated(true);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "Az előnézet generálása sikertelen");
         } finally {
-            setLoading(false);
+            setBusyAction(null);
         }
     }
 
-    async function finalize() {
+    async function createGmailDraft() {
         if (!draftId) return;
-        setLoading(true);
+        if (isDirty && !window.confirm("A Gmail-piszkozat készítése elmenti az aktuális ajánlatot. Folytatod?")) {
+            return;
+        }
+        const payload = buildPayload();
+        setBusyAction("finalize");
         setError(null);
+        setSaveSuccess(null);
 
         try {
-            const payload = {
-                clientName: clientName || email?.fromAddress || "Érdeklődő",
-                additionalNotes,
-                includeAdditionalNotes,
-                lineItems: lineItems.map((item) => ({
-                    ...item,
-                    quantity: Number(item.quantity || 0),
-                    unitPrice: Number(item.unitPrice || 0),
-                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
-                })),
-            };
-
-            await apiFetch(`/api/drafts/${draftId}/finalize`, {
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/finalize`, {
                 method: "POST",
                 body: payload,
             });
-
-            setSaveSuccess("A Gmail-piszkozat elkészült. Ellenőrizd és küldd el Gmailben.");
+            applySavedDraft(data);
+            setSaveSuccess("A Gmail-piszkozat elkészült. Ellenőrizd a Gmailben, mielőtt elküldöd.");
             onSent();
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : "A küldés sikertelen");
+            setError(err instanceof ApiError ? err.message : "A Gmail-piszkozat létrehozása sikertelen");
         } finally {
-            setLoading(false);
+            setBusyAction(null);
         }
     }
 
     if (!isQuoteRequest) {
         return (
-            <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <p className="text-sm text-amber-800">
-                    Az AI válasz generálása csak árajánlat kérésekhez érhető el.
+            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <p className="text-sm font-medium text-amber-900">
+                    Az AI-ajánlatkészítés csak ajánlatkérés kategóriájú levelekhez érhető el.
                 </p>
             </section>
         );
     }
 
     return (
-        <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-                <h3 className="font-semibold text-slate-900">Ajánlat előkészítése</h3>
-                <Button onClick={analyze} disabled={loading}>
-                    {loading ? "Elemzés…" : draftId ? "Újraelemzés a megjegyzésekkel" : "AI elemzés"}
-                </Button>
-            </div>
+        <section className="min-w-0 space-y-4">
+            {error && (
+                <div role="alert" className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                    <span className="mt-0.5 font-bold" aria-hidden="true">!</span>
+                    <p className="min-w-0 break-words">{error}</p>
+                </div>
+            )}
 
-            <div className="mt-4">
-                <label htmlFor="additional-notes" className="mb-2 block text-sm font-medium text-slate-700">
-                    Kiegészítés telefonos vagy helyszíni egyeztetés alapján
-                </label>
-                <textarea
-                    id="additional-notes"
-                    rows={4}
-                    value={additionalNotes}
-                    onChange={(event) => {
-                        setPreviewGenerated(false);
-                        setAdditionalNotes(event.target.value);
-                    }}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-brand-500 focus:outline-none"
-                    placeholder="Pl. telefonon egyeztettük, hogy a régi burkolat bontását is kérik; a terület 35 m²."
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                    Az AI az elemzéskor figyelembe veszi ezt a szöveget.
+            {busyAction && (
+                <p role="status" className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
+                    {busyAction === "analyze" && "Az AI elemzi a levelet és összeállítja a javasolt tételeket…"}
+                    {busyAction === "save" && "Az ajánlat módosításainak mentése folyamatban…"}
+                    {busyAction === "preview" && "A PDF-előnézet készítése folyamatban…"}
+                    {busyAction === "finalize" && "A Gmail-piszkozat készítése folyamatban…"}
                 </p>
-            </div>
+            )}
+
+            <DraftAnalysisPanel
+                emailId={emailId}
+                draftId={draftId}
+                clientName={clientName}
+                additionalNotes={additionalNotes}
+                includeAdditionalNotes={includeAdditionalNotes}
+                reviewWarnings={reviewWarnings}
+                unmapped={unmapped}
+                busy={busyAction !== null}
+                onAnalyze={analyze}
+                onClientNameChange={(value) => {
+                    setPreviewGenerated(false);
+                    setClientName(value);
+                }}
+                onAdditionalNotesChange={(value) => {
+                    setPreviewGenerated(false);
+                    setAdditionalNotes(value);
+                }}
+                onIncludeAdditionalNotesChange={(value) => {
+                    setPreviewGenerated(false);
+                    setIncludeAdditionalNotes(value);
+                }}
+                onAddUnmapped={(value) => addCustomRow(value, "db")}
+            />
 
             {draftId && (
                 <>
-                    <div className="mt-3 flex items-start gap-2">
-                        <input
-                            id="include-additional-notes"
-                            type="checkbox"
-                            checked={includeAdditionalNotes}
-                            onChange={(event) => {
-                                setPreviewGenerated(false);
-                                setIncludeAdditionalNotes(event.target.checked);
-                            }}
-                            className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                        />
-                        <label htmlFor="include-additional-notes" className="text-sm text-slate-700">
-                            Jelenjen meg ez a kiegészítés az árajánlatban
-                        </label>
-                    </div>
-
-                    {reviewWarnings.length > 0 && (
-                        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                            <h4 className="text-sm font-semibold text-amber-900">⚠️ AI Figyelmeztetések</h4>
-                            <ul className="mt-2 space-y-2 text-sm text-amber-900">
-                                {reviewWarnings.map((warning, index) => (
-                                    <li key={`${warning}-${index}`} className="rounded bg-amber-100/80 p-2">
-                                        {warning}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-
-                    {unmapped.length > 0 && (
-                        <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-                            <h4 className="text-sm font-semibold text-yellow-900">Nincs a katalógusban</h4>
-                            <ul className="mt-2 space-y-2 text-sm text-yellow-900">
-                                {unmapped.map((item, index) => (
-                                    <li key={`${item}-${index}`} className="flex items-center justify-between gap-2">
-                                        <span>{capitalizeFirstLetter(item)}</span>
-                                        <Button
-                                            variant="secondary"
-                                            className="!px-3 !py-1.5"
-                                            onClick={() => {
-                                                setPreviewGenerated(false);
-                                                setLineItems((current) => [
-                                                    ...current,
-                                                    makeRow(capitalizeFirstLetter(item), "db", 1, 0),
-                                                ]);
-                                            }}
-                                        >
-                                            Hozzáadás
-                                        </Button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-
-                    <div className="mt-4">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                            <label className="text-sm font-medium text-slate-700">Ügyfél neve</label>
-                        </div>
-                        <input
-                            value={clientName}
-                            onChange={(event) => {
-                                setPreviewGenerated(false);
-                                setClientName(event.target.value);
-                            }}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-brand-500 focus:outline-none"
-                            placeholder="Ügyfél neve"
-                        />
-                    </div>
-
-                    <div className="mt-4 overflow-x-auto">
-                        <table className="min-w-full border-separate border-spacing-y-2 text-sm">
-                            <thead>
-                            <tr className="text-left text-slate-600">
-                                <th className="px-2 py-1">Név</th>
-                                <th className="px-2 py-1">Mennyiség</th>
-                                <th className="px-2 py-1">Egység</th>
-                                <th className="px-2 py-1">{vatRegistered ? "Bruttó egységár" : "Egységár"}</th>
-                                <th className="px-2 py-1">{vatRegistered ? "Bruttó összeg" : "Fizetendő"}</th>
-                                <th className="px-2 py-1"/>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {lineItems.length === 0 ? (
-                                <tr>
-                                    <td colSpan={6} className="px-2 py-4 text-center text-slate-500">
-                                        Nincs tétel az elemzéshez.
-                                    </td>
-                                </tr>
-                            ) : (
-                                lineItems.map((item, index) => (
-                                    <tr key={index} className="rounded-lg bg-slate-50 align-top">
-                                        <td className="rounded-l-lg px-2 py-2">
-                                            <input
-                                                value={item.name}
-                                                onChange={(event) => updateLineItem(index, "name", event.target.value)}
-                                                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 focus:border-brand-500 focus:outline-none"
-                                            />
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={item.quantity}
-                                                onChange={(event) => updateLineItem(index, "quantity", event.target.value)}
-                                                className="w-24 rounded border border-slate-300 bg-white px-2 py-1.5 focus:border-brand-500 focus:outline-none"
-                                            />
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input
-                                                value={item.unit}
-                                                onChange={(event) => updateLineItem(index, "unit", event.target.value)}
-                                                className="w-20 rounded border border-slate-300 bg-white px-2 py-1.5 focus:border-brand-500 focus:outline-none"
-                                            />
-                                        </td>
-                                        <td className="px-2 py-2">
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="100"
-                                                value={item.unitPrice}
-                                                onChange={(event) => updateLineItem(index, "unitPrice", event.target.value)}
-                                                className="w-28 rounded border border-slate-300 bg-white px-2 py-1.5 focus:border-brand-500 focus:outline-none"
-                                            />
-                                        </td>
-                                        <td className="px-2 py-2 text-right font-medium text-slate-700">
-                                            {currencyFormatter.format(item.subtotal)} Ft
-                                        </td>
-                                        <td className="rounded-r-lg px-2 py-2 text-right">
-                                            <button
-                                                type="button"
-                                                className="text-sm text-red-600 hover:text-red-700"
-                                                onClick={() => removeLineItem(index)}
-                                            >
-                                                Töröl
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
-                        {vatRegistered ? (
-                            <div className="ml-auto text-right text-sm text-slate-600">
-                                <p>Nettó összesen: {currencyFormatter.format(vatTotals.net)} Ft</p>
-                                <p>ÁFA (27%): {currencyFormatter.format(vatTotals.vat)} Ft</p>
-                                <p className="text-lg font-semibold text-slate-900">
-                                    Bruttó fizetendő: {currencyFormatter.format(total)} Ft
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                <span className="text-sm text-slate-600">Fizetendő összesen</span>
-                                <span className="text-lg font-semibold text-slate-900">
-                                    {currencyFormatter.format(total)} Ft
-                                </span>
-                            </>
-                        )}
-                    </div>
-
-                    <div className="mt-5 flex gap-2">
-                        <Button variant="secondary" onClick={addCustomRow}>
-                            + Új tétel
-                        </Button>
-                        <Button onClick={save} disabled={loading} variant="secondary">
-                            {loading ? "Mentés…" : "Mentés"}
-                        </Button>
-                        {!previewGenerated ? (
-                            <Button onClick={preview} disabled={loading || lineItems.length === 0}>
-                                {loading ? "Előnézet generálása…" : "Előnézet generálása"}
-                            </Button>
-                        ) : (
-                            <Button onClick={preview} disabled={loading} variant="secondary">
-                                {loading ? "Újra generálása…" : "Újra generálása"}
-                            </Button>
-                        )}
-                    </div>
+                    <QuoteLineItemsEditor
+                        lineItems={lineItems}
+                        vatRegistered={vatRegistered}
+                        busy={busyAction !== null}
+                        onUpdate={updateLineItem}
+                        onAdd={() => addCustomRow()}
+                        onRemove={removeLineItem}
+                    />
+                    <DraftActions
+                        draftId={draftId}
+                        lineItemCount={lineItems.length}
+                        busyAction={busyAction}
+                        isDirty={isDirty}
+                        saveSuccess={saveSuccess}
+                        total={total}
+                        net={vatTotals.net}
+                        vat={vatTotals.vat}
+                        vatRegistered={vatRegistered}
+                        onSave={save}
+                        onPreview={preview}
+                        onCreateGmailDraft={createGmailDraft}
+                    />
                 </>
             )}
 
             {body && previewGenerated && pdfUrl && (
-                <div className="mt-6">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h4>
+                <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+                        <div>
+                            <h2 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h2>
+                            <p className="mt-0.5 text-xs text-slate-500">A megnyitás és letöltés a jelenlegi PDF alapján történik.</p>
+                        </div>
                         <a
                             href={pdfUrl}
                             download={`arajanlat-${draftId}.pdf`}
-                            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+                            className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                         >
                             PDF letöltése
                         </a>
                     </div>
                     <iframe
-                        title="Árajánlat PDF-előnézet"
+                        title="Árajánlat PDF-előnézete"
                         src={pdfUrl}
-                        className="h-[700px] w-full rounded-lg border border-slate-200 bg-slate-100"
+                        className="h-[min(75vh,760px)] min-h-[420px] w-full bg-slate-100"
                     />
-
-                    <div className="mt-4 flex gap-2">
-                        <Button onClick={finalize} disabled={loading}>
-                            {loading ? "Gmail-piszkozat készítése…" : "Gmail-piszkozat készítése PDF-melléklettel"}
-                        </Button>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                        A Gmailben egy rövid kísérőszövegű piszkozat nyílik meg a PDF-melléklettel; elküldés előtt még
-                        ellenőrizheted.
-                    </p>
-                </div>
+                </section>
             )}
-
-            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-            {saveSuccess && <p className="mt-3 text-sm text-green-600">✓ {saveSuccess}</p>}
         </section>
     );
 }
