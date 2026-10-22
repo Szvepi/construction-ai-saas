@@ -6,8 +6,7 @@ import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {CatalogItem, CompanyProfile, EmailSummary, GmailStatus} from "@/lib/types";
-import {AppHeader} from "@/components/layout/AppHeader";
-import {DashboardNav} from "@/components/layout/DashboardNav";
+import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {GmailConnectBanner} from "@/components/emails/GmailConnectBanner";
 
 function formatDate(dateString: string): string {
@@ -110,10 +109,8 @@ export default function DashboardPage() {
     );
 
     return (
-        <div className="min-h-screen bg-slate-50">
-            <AppHeader/>
-            <DashboardNav/>
-            <main className="mx-auto max-w-5xl space-y-6 px-4 py-6">
+        <DashboardLayout>
+            <main className="mx-auto w-full min-w-0 max-w-5xl space-y-6 px-4 py-6">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Áttekintés</h1>
                     <p className="mt-1 text-sm text-slate-600">
@@ -137,17 +134,17 @@ export default function DashboardPage() {
                     <p className="py-8 text-center text-slate-500">Áttekintő betöltése…</p>
                 ) : (
                     <>
-                        <section className="grid gap-4 sm:grid-cols-3" aria-label="Levelezési statisztikák">
+                        <section className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3" aria-label="Levelezési statisztikák">
                             <StatCard label="Árajánlatkérések" value={quoteRequests}/>
                             <StatCard label="Ellenőrzésre váró piszkozatok" value={needsReview}/>
                             <StatCard label="Kiküldésre kész ajánlatok" value={readyDrafts}/>
                         </section>
 
-                        <div className="grid gap-6 lg:grid-cols-3">
-                            <section className="rounded-lg border border-slate-200 bg-white lg:col-span-2">
-                                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                                    <h2 className="font-semibold text-slate-900">Legutóbbi levelek</h2>
-                                    <Link href="/dashboard/emails" className="text-sm font-medium text-blue-700 hover:underline">
+                        <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
+                            <section className="min-w-0 rounded-lg border border-slate-200 bg-white lg:col-span-2">
+                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-200 px-4 py-3">
+                                    <h2 className="min-w-0 font-semibold text-slate-900">Legutóbbi levelek</h2>
+                                    <Link href="/dashboard/emails" className="shrink-0 text-sm font-medium text-blue-700 hover:underline">
                                         Összes levél
                                     </Link>
                                 </div>
@@ -163,17 +160,17 @@ export default function DashboardPage() {
                                             <li key={email.id}>
                                                 <Link
                                                     href={`/emails/${email.id}`}
-                                                    className="block px-4 py-3 hover:bg-slate-50"
+                                                    className="block min-w-0 px-4 py-3 hover:bg-slate-50"
                                                 >
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <span className="truncate text-sm font-medium text-slate-900">
+                                                    <div className="flex min-w-0 items-start justify-between gap-3 sm:items-center">
+                                                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">
                                                             {email.subject || "(nincs tárgy)"}
                                                         </span>
-                                                        <time className="shrink-0 text-xs text-slate-500">
+                                                        <time className="shrink-0 text-right text-xs text-slate-500">
                                                             {formatDate(email.receivedAt)}
                                                         </time>
                                                     </div>
-                                                    <p className="mt-1 truncate text-xs text-slate-600">{email.fromAddress}</p>
+                                                    <p className="mt-1 min-w-0 truncate text-xs text-slate-600">{email.fromAddress}</p>
                                                     <span className="mt-2 inline-block rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
                                                         {email.category === "QUOTE_REQUEST"
                                                             ? "Árajánlatkérés"
@@ -186,10 +183,10 @@ export default function DashboardPage() {
                                 )}
                             </section>
 
-                            <section className="space-y-4">
-                                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                            <section className="min-w-0 space-y-4">
+                                <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4">
                                     <h2 className="font-semibold text-slate-900">Ajánlatkészítés</h2>
-                                    <div className="mt-3 space-y-2 text-sm">
+                                    <div className="mt-3 min-w-0 space-y-2 text-sm">
                                         <SetupStatus
                                             label="Céges adatok"
                                             ready={hasCompanyProfile}
@@ -204,7 +201,7 @@ export default function DashboardPage() {
                                 </div>
                                 <Link
                                     href="/dashboard/emails"
-                                    className="block rounded-lg bg-blue-700 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-800"
+                                    className="block w-full min-w-0 rounded-lg bg-blue-700 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-800"
                                 >
                                     Ugrás a beérkezett levelekhez
                                 </Link>
@@ -213,14 +210,14 @@ export default function DashboardPage() {
                     </>
                 )}
             </main>
-        </div>
+        </DashboardLayout>
     );
 }
 
 function StatCard({label, value}: {label: string; value: number}) {
     return (
-        <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <p className="text-sm font-medium text-slate-600">{label}</p>
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5">
+            <p className="break-words text-sm font-medium text-slate-600">{label}</p>
             <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
         </div>
     );
@@ -228,11 +225,11 @@ function StatCard({label, value}: {label: string; value: number}) {
 
 function SetupStatus({label, ready, href}: {label: string; ready: boolean; href: string}) {
     return (
-        <div className="flex items-center justify-between gap-3">
-            <span className="text-slate-700">{label}</span>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <span className="min-w-0 flex-1 break-words text-slate-700">{label}</span>
             <Link
                 href={href}
-                className={ready ? "text-emerald-700 hover:underline" : "text-amber-700 hover:underline"}
+                className={`shrink-0 ${ready ? "text-emerald-700 hover:underline" : "text-amber-700 hover:underline"}`}
             >
                 {ready ? "Beállítva" : "Beállítás"}
             </Link>

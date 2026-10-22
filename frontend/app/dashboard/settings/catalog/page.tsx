@@ -6,8 +6,7 @@ import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {CalculationStrategy, CatalogItem} from "@/lib/types";
 import {STRATEGY_DESCRIPTIONS} from "@/lib/types";
-import {AppHeader} from "@/components/layout/AppHeader";
-import {DashboardNav} from "@/components/layout/DashboardNav";
+import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {Button} from "@/components/ui/Button";
 import {CatalogInfoBanner} from "@/components/catalog/CatalogInfoBanner";
 
@@ -250,9 +249,7 @@ export default function CatalogSettingsPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50">
-            <AppHeader/>
-            <DashboardNav/>
+        <DashboardLayout>
             <div className="mx-auto max-w-5xl px-4 py-6 space-y-6">
                 <CatalogInfoBanner/>
                 <div className="flex items-center justify-between">
@@ -531,6 +528,6 @@ export default function CatalogSettingsPage() {
                     </div>
                 ) : null}
             </div>
-        </div>
+        </DashboardLayout>
     );
 }

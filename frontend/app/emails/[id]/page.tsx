@@ -6,7 +6,7 @@ import {useParams, useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {EmailDetail} from "@/lib/types";
-import {AppHeader} from "@/components/layout/AppHeader";
+import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {DraftPanel} from "@/components/emails/DraftPanel";
 
 export default function EmailDetailPage() {
@@ -44,8 +44,7 @@ export default function EmailDetailPage() {
     }, [emailId, router, loadEmail]);
 
     return (
-        <div className="min-h-screen bg-slate-50">
-            <AppHeader/>
+        <DashboardLayout>
             <div className="mx-auto max-w-3xl px-4 py-6">
                 <Link href="/dashboard/emails" className="text-sm text-brand-600 hover:underline">
                     ← Vissza a beérkezett üzenetekhez
@@ -85,6 +84,6 @@ export default function EmailDetailPage() {
                     </article>
                 )}
             </div>
-        </div>
+        </DashboardLayout>
     );
 }

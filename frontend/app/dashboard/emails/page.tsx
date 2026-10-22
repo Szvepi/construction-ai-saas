@@ -5,8 +5,7 @@ import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {EmailSummary, GmailStatus} from "@/lib/types";
-import {AppHeader} from "@/components/layout/AppHeader";
-import {DashboardNav} from "@/components/layout/DashboardNav";
+import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {EmailList} from "@/components/emails/EmailList";
 import {GmailConnectBanner} from "@/components/emails/GmailConnectBanner";
 import {Button} from "@/components/ui/Button";
@@ -71,9 +70,7 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50">
-            <AppHeader/>
-            <DashboardNav/>
+        <DashboardLayout>
             <main className="mx-auto max-w-5xl space-y-4 px-4 py-6">
                 <GmailConnectBanner
                     status={gmailStatus}
@@ -96,6 +93,6 @@ export default function DashboardPage() {
                     <EmailList emails={emails} onEmailUpdated={() => loadData()}/>
                 )}
             </main>
-        </div>
+        </DashboardLayout>
     );
 }
