@@ -4,6 +4,8 @@ import com.buildassist.model.EmailCategory;
 import com.buildassist.model.EmailDraft;
 
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
 
 public final class EmailDtos {
 
@@ -18,6 +20,15 @@ public final class EmailDtos {
             boolean replied,
             EmailCategory category,
             EmailDraft.DraftStatus draftStatus) {
+    }
+
+    public record EmailSearchResponse(
+            List<EmailSummaryResponse> content,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages,
+            Map<EmailCategory, Long> categoryCounts) {
     }
 
     public record EmailDetailResponse(

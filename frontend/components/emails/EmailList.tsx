@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import {useMemo, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import type {EmailSummary} from "@/lib/types";
 import {apiFetch} from "@/lib/api";
 
 type Props = { emails: EmailSummary[]; onEmailUpdated?: (id: number) => void };
 
 type CategoryFilter = "ALL" | "QUOTE_REQUEST" | "SPAM" | "OTHER";
+type DraftStatusFilter = "ALL" | "REVIEW" | "READY";
 
 const CATEGORY_MAP = {
     QUOTE_REQUEST: {label: "Árajánlat kérés", color: "bg-blue-100 text-blue-800 border-blue-200"},
@@ -41,12 +42,43 @@ function formatDate(dateString: string): string {
 
 export function EmailList({emails, onEmailUpdated}: Props) {
     const [filter, setFilter] = useState<CategoryFilter>("ALL");
+    const [draftStatusFilter, setDraftStatusFilter] = useState<DraftStatusFilter>("ALL");
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
 
+    useEffect(() => {
+        function applyUrlFilters() {
+            const params = new URLSearchParams(window.location.search);
+            const category = params.get("category");
+            const draftStatus = params.get("draftStatus");
+
+            setFilter(
+                category === "QUOTE_REQUEST" || category === "SPAM" || category === "OTHER"
+                    ? category
+                    : "ALL",
+            );
+            setDraftStatusFilter(
+                draftStatus === "REVIEW" || draftStatus === "READY"
+                    ? draftStatus
+                    : "ALL",
+            );
+        }
+
+        applyUrlFilters();
+        window.addEventListener("popstate", applyUrlFilters);
+        return () => window.removeEventListener("popstate", applyUrlFilters);
+    }, []);
+
     const filteredEmails = useMemo(() => {
-        if (filter === "ALL") return emails;
-        return emails.filter((e) => e.category === filter);
-    }, [emails, filter]);
+        return emails.filter((email) => {
+            const matchesCategory = filter === "ALL" || email.category === filter;
+            const matchesDraftStatus = draftStatusFilter === "ALL"
+                || (draftStatusFilter === "REVIEW" &&
+                    (email.draftStatus === "DRAFT" || email.draftStatus === "PENDING_REVIEW"))
+                || (draftStatusFilter === "READY" && email.draftStatus === "READY");
+
+            return matchesCategory && matchesDraftStatus;
+        });
+    }, [emails, filter, draftStatusFilter]);
 
     async function handleCategoryChange(emailId: number, newCategory: string, event: React.MouseEvent) {
         event.preventDefault();
@@ -71,6 +103,38 @@ export function EmailList({emails, onEmailUpdated}: Props) {
         return [];
     }
 
+    function setCategoryFilter(nextFilter: CategoryFilter) {
+        setFilter(nextFilter);
+        setDraftStatusFilter("ALL");
+
+        const url = new URL(window.location.href);
+        url.searchParams.delete("draftStatus");
+        if (nextFilter === "ALL") {
+            url.searchParams.delete("category");
+        } else {
+            url.searchParams.set("category", nextFilter);
+        }
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+
+    function setStatusFilter(nextFilter: DraftStatusFilter) {
+        setFilter("ALL");
+        setDraftStatusFilter(nextFilter);
+
+        const url = new URL(window.location.href);
+        url.searchParams.delete("category");
+        if (nextFilter === "ALL") {
+            url.searchParams.delete("draftStatus");
+        } else {
+            url.searchParams.set("draftStatus", nextFilter);
+        }
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+
+    function clearDraftStatusFilter() {
+        setStatusFilter("ALL");
+    }
+
     if (emails.length === 0) {
         return (
             <p className="py-12 text-center text-slate-500">
@@ -80,7 +144,7 @@ export function EmailList({emails, onEmailUpdated}: Props) {
     }
 
     return (
-        <div className="space-y-4 relative">
+        <div className="relative space-y-4">
             {/* Láthatatlan háttér (Backdrop) - ha nyitva van egy dropdown, erre kattintva bezáródik */}
             {openDropdown !== null && (
                 <div
@@ -92,7 +156,9 @@ export function EmailList({emails, onEmailUpdated}: Props) {
             {/* Szűrő gombok / Tabok */}
             <div className="flex flex-wrap gap-2">
                 <button
-                    onClick={() => setFilter("ALL")}
+                    type="button"
+                    onClick={() => setCategoryFilter("ALL")}
+                    aria-pressed={filter === "ALL"}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                         filter === "ALL"
                             ? "bg-brand-600 text-white"
@@ -102,17 +168,33 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                     Összes ({emails.length})
                 </button>
                 <button
-                    onClick={() => setFilter("QUOTE_REQUEST")}
+                    type="button"
+                    onClick={() => setCategoryFilter("QUOTE_REQUEST")}
+                    aria-pressed={filter === "QUOTE_REQUEST"}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                         filter === "QUOTE_REQUEST"
                             ? "bg-blue-600 text-white"
                             : "bg-blue-100 text-blue-700 hover:bg-blue-200"
                     }`}
                 >
-                    Árajánlat kérések ({emails.filter((e) => e.category === "QUOTE_REQUEST").length})
+                    Ajánlatkérések ({emails.filter((e) => e.category === "QUOTE_REQUEST").length})
                 </button>
                 <button
-                    onClick={() => setFilter("OTHER")}
+                    type="button"
+                    onClick={() => setStatusFilter(draftStatusFilter === "REVIEW" ? "ALL" : "REVIEW")}
+                    aria-pressed={draftStatusFilter === "REVIEW"}
+                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                        draftStatusFilter === "REVIEW"
+                            ? "bg-amber-600 text-white"
+                            : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    }`}
+                >
+                    Ellenőrzésre vár ({emails.filter((e) => e.draftStatus === "DRAFT" || e.draftStatus === "PENDING_REVIEW").length})
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setCategoryFilter("OTHER")}
+                    aria-pressed={filter === "OTHER"}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                         filter === "OTHER"
                             ? "bg-gray-600 text-white"
@@ -122,7 +204,9 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                     Egyéb ({emails.filter((e) => e.category === "OTHER").length})
                 </button>
                 <button
-                    onClick={() => setFilter("SPAM")}
+                    type="button"
+                    onClick={() => setCategoryFilter("SPAM")}
+                    aria-pressed={filter === "SPAM"}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                         filter === "SPAM"
                             ? "bg-red-600 text-white"
@@ -133,9 +217,32 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                 </button>
             </div>
 
+            {draftStatusFilter !== "ALL" && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2.5">
+                    <p className="text-sm text-brand-900">
+                        Aktív szűrő: <span className="font-semibold">
+                            {draftStatusFilter === "REVIEW" ? "Ellenőrzésre váró piszkozatok" : "Kiküldésre kész ajánlatok"}
+                        </span>
+                    </p>
+                    <button
+                        type="button"
+                        onClick={clearDraftStatusFilter}
+                        className="text-sm font-semibold text-brand-700 hover:text-brand-900 hover:underline"
+                    >
+                        Szűrő törlése
+                    </button>
+                </div>
+            )}
+
             {/* Email Lista */}
             {filteredEmails.length === 0 ? (
-                <p className="py-8 text-center text-slate-500">Nincsenek e-mailek ebben a kategóriában.</p>
+                <p className="py-8 text-center text-slate-500">
+                    {draftStatusFilter === "REVIEW"
+                        ? "Nincs ellenőrzésre váró piszkozat."
+                        : draftStatusFilter === "READY"
+                            ? "Nincs kiküldésre kész ajánlat."
+                            : "Nincsenek e-mailek ebben a kategóriában."}
+                </p>
             ) : (
                 <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
                     {filteredEmails.map((email) => {

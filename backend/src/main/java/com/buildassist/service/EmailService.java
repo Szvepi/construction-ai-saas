@@ -4,19 +4,26 @@ import com.buildassist.dto.DraftDtos;
 import com.buildassist.dto.EmailDtos;
 import com.buildassist.dto.EmailDtos.EmailDetailResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
+import com.buildassist.dto.EmailDtos.EmailSearchResponse;
 import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
+import com.buildassist.model.EmailDraft;
 import com.buildassist.model.GmailConnection;
 import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
+import com.buildassist.repository.EmailRepository.CategoryCount;
+import com.buildassist.repository.EmailRepository.SearchRow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -27,6 +34,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -75,6 +85,96 @@ public class EmailService {
                                 .map(com.buildassist.model.EmailDraft::getStatus)
                                 .orElse(null)))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public EmailSearchResponse searchEmails(
+            Long userId,
+            String query,
+            EmailCategory category,
+            EmailDraft.DraftStatus draftStatus,
+            int pageNumber,
+            int pageSize,
+            String direction) {
+        if (pageNumber < 0) {
+            throw new IllegalArgumentException("page must be 0 or greater");
+        }
+        if (pageSize < 1 || pageSize > 100) {
+            throw new IllegalArgumentException("size must be between 1 and 100");
+        }
+        if (direction == null || !(direction.equalsIgnoreCase("asc") || direction.equalsIgnoreCase("desc"))) {
+            throw new IllegalArgumentException("direction must be 'asc' or 'desc'");
+        }
+
+        String searchPattern = toSearchPattern(query);
+        Map<EmailCategory, Long> categoryCounts = emptyCategoryCounts();
+        Optional<GmailConnection> gmailConnection = gmailConnectionRepository.findByUserId(userId);
+        if (gmailConnection.isEmpty()) {
+            return new EmailSearchResponse(
+                    List.of(), pageNumber, pageSize, 0, 0, categoryCounts);
+        }
+
+        Long gmailConnectionId = gmailConnection.get().getId();
+        String categoryName = category == null ? null : category.name();
+        String draftStatusName = draftStatus == null ? null : draftStatus.name();
+        Pageable pageable = PageRequest.of(pageNumber, pageSize);
+        Page<SearchRow> results = direction.equalsIgnoreCase("asc")
+                ? emailRepository.searchEmailsAscending(
+                        gmailConnectionId, searchPattern, categoryName, draftStatusName, pageable)
+                : emailRepository.searchEmailsDescending(
+                        gmailConnectionId, searchPattern, categoryName, draftStatusName, pageable);
+
+        List<CategoryCount> counts = emailRepository.countSearchEmailsByCategory(
+                gmailConnectionId, searchPattern, draftStatusName);
+        for (CategoryCount count : counts) {
+            categoryCounts.put(EmailCategory.valueOf(count.getCategory()), count.getCount());
+        }
+
+        List<EmailSummaryResponse> content = results.getContent().stream()
+                .map(this::toSummaryResponse)
+                .toList();
+
+        return new EmailSearchResponse(
+                content,
+                results.getNumber(),
+                results.getSize(),
+                results.getTotalElements(),
+                results.getTotalPages(),
+                categoryCounts);
+    }
+
+    private EmailSummaryResponse toSummaryResponse(SearchRow row) {
+        return new EmailSummaryResponse(
+                row.getId(),
+                row.getSubject(),
+                row.getFromAddress(),
+                row.getReceivedAt(),
+                Boolean.TRUE.equals(row.getReplied()),
+                EmailCategory.valueOf(row.getCategory()),
+                row.getDraftStatus() == null ? null : EmailDraft.DraftStatus.valueOf(row.getDraftStatus()));
+    }
+
+    private String toSearchPattern(String query) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        if (query.length() > 200) {
+            throw new IllegalArgumentException("q must be at most 200 characters");
+        }
+        String escapedQuery = query.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
+        return "%" + escapedQuery + "%";
+    }
+
+    private Map<EmailCategory, Long> emptyCategoryCounts() {
+        Map<EmailCategory, Long> counts = new EnumMap<>(EmailCategory.class);
+        for (EmailCategory emailCategory : EmailCategory.values()) {
+            counts.put(emailCategory, 0L);
+        }
+        return counts;
     }
 
     public EmailDetailResponse getEmail(Long userId, Long emailId) {

@@ -102,6 +102,8 @@ class CompanyProfileServiceTest {
             null,
             null,
             null,
+            null,
+            false,
             null
         );
     }
