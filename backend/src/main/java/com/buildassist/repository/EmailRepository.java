@@ -2,11 +2,14 @@ package com.buildassist.repository;
 
 import com.buildassist.model.Email;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +38,27 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
     List<Email> findByGmailConnectionId(Long gmailConnectionId);
 
     boolean existsByGmailConnectionIdAndGmailMessageId(Long gmailConnectionId, String gmailMessageId);
+
+    @Modifying
+    @Transactional
+    @Query(value = """
+            INSERT INTO emails (
+                gmail_connection_id, gmail_message_id, subject, from_address, body_text,
+                email_received_at, synced_at, is_replied, category
+            ) VALUES (
+                :gmailConnectionId, :gmailMessageId, :subject, :fromAddress, :bodyText,
+                :receivedAt, NOW(), FALSE, :category
+            )
+            ON CONFLICT (gmail_connection_id, gmail_message_id) DO NOTHING
+            """, nativeQuery = true)
+    int insertIfAbsent(
+            @Param("gmailConnectionId") Long gmailConnectionId,
+            @Param("gmailMessageId") String gmailMessageId,
+            @Param("subject") String subject,
+            @Param("fromAddress") String fromAddress,
+            @Param("bodyText") String bodyText,
+            @Param("receivedAt") OffsetDateTime receivedAt,
+            @Param("category") String category);
 
     String SEARCH_FROM_WHERE = """
             FROM emails e

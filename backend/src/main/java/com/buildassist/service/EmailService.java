@@ -326,8 +326,14 @@ public class EmailService {
                 log.info("Fetching details for message {}.", messageId);
                 Email email = fetchMessageDetails(gmailConn, accessToken, messageId);
                 if (email != null) {
-                    emailRepository.save(email);
-                    savedCount++;
+                    savedCount += emailRepository.insertIfAbsent(
+                            gmailConn.getId(),
+                            email.getGmailMessageId(),
+                            email.getSubject(),
+                            email.getFromAddress(),
+                            email.getBodyText(),
+                            email.getEmailReceivedAt(),
+                            email.getCategory().name());
                 }
             }
 
@@ -390,7 +396,12 @@ public class EmailService {
         }
     }
 
-    private Email createEmailFromGmailResponse(GmailConnection gmailConn, String messageId, JsonNode fullHeaders, JsonNode fullJson, EmailCategory category) {
+    Email createEmailFromGmailResponse(
+            GmailConnection gmailConn,
+            String messageId,
+            JsonNode fullHeaders,
+            JsonNode fullJson,
+            EmailCategory category) {
         String subject = extractHeader(fullHeaders, "Subject");
         String fromAddress = extractHeader(fullHeaders, "From");
         String bodyText = extractBody(fullJson.path("payload"));
@@ -414,7 +425,7 @@ public class EmailService {
      * QUOTE_REQUEST: Árajánlat kérés
      * OTHER: Egyéb
      */
-    private EmailCategory categorizeMessage(JsonNode headers, String messageId) {
+    EmailCategory categorizeMessage(JsonNode headers, String messageId) {
         if (headers == null || !headers.isArray()) {
             return EmailCategory.OTHER;
         }

@@ -1,0 +1,16 @@
+ALTER TABLE gmail_connections
+    ADD COLUMN backfill_cutoff TIMESTAMPTZ,
+    ADD COLUMN backfill_policy_months INTEGER,
+    ADD COLUMN history_sync_cursor TEXT,
+    ADD COLUMN history_sync_phase VARCHAR(32),
+    ADD COLUMN history_sync_baseline_id TEXT,
+    ADD COLUMN history_sync_cutoff TIMESTAMPTZ,
+    ADD COLUMN history_sync_policy_months INTEGER,
+    ADD COLUMN history_sync_query TEXT,
+    ADD COLUMN history_sync_page_token TEXT,
+    ADD COLUMN history_sync_pending_page_token TEXT,
+    ADD COLUMN history_sync_pending_history_id TEXT,
+    ADD COLUMN history_sync_message_ids TEXT,
+    ADD COLUMN history_sync_message_offset INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN history_sync_lock_id UUID,
+    ADD COLUMN history_sync_lock_until TIMESTAMPTZ;

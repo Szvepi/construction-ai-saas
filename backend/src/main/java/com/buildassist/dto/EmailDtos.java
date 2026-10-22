@@ -43,7 +43,26 @@ public final class EmailDtos {
             DraftDtos.GenerateDraftResponse draftEmail) {
     }
 
-    public record RefreshEmailsResponse(int fetchedCount) {
+    public record RefreshEmailsResponse(
+            int fetchedCount,
+            int processedCount,
+            boolean hasMore,
+            boolean complete,
+            boolean inProgress,
+            String phase,
+            String message) {
+        public RefreshEmailsResponse(int fetchedCount) {
+            this(fetchedCount, fetchedCount, false, true, false, "COMPLETE", "Frissítés befejeződött.");
+        }
+    }
+
+    public record BackfillResponse(
+            int importedCount,
+            int processedCount,
+            boolean hasMore,
+            boolean complete,
+            boolean inProgress,
+            String message) {
     }
 
     public record UpdateCategoryRequest(EmailCategory category) {

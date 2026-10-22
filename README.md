@@ -47,6 +47,7 @@ Use **localhost** for DB/Redis in `.env` (defaults in `application.yml` match):
 | Variable       | Local dev value                                |
 |----------------|------------------------------------------------|
 | `DATABASE_URL` | `jdbc:postgresql://localhost:5432/buildassist` |
+| `GMAIL_SYNC_WINDOW_MONTHS` | `6` (limits new Gmail imports; existing stored emails remain searchable) |
 | `REDIS_HOST`   | `localhost`                                    |
 | `REDIS_PORT`   | `6379`                                         |
 

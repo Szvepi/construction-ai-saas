@@ -1,5 +1,6 @@
 package com.buildassist.controller;
 
+import com.buildassist.service.GmailBackfillException;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -33,6 +34,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(GmailBackfillException.class)
+    public ResponseEntity<Map<String, String>> handleGmailBackfill(GmailBackfillException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .body(Map.of("error", ex.getMessage(), "code", ex.getCode()));
     }
 
     @ExceptionHandler(Exception.class)

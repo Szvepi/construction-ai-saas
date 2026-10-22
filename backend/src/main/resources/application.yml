@@ -76,6 +76,7 @@ app:
     client-id: ${GMAIL_CLIENT_ID:}
     client-secret: ${GMAIL_CLIENT_SECRET:}
     redirect-uri: ${GMAIL_REDIRECT_URI:http://localhost:8080/api/gmail/callback}
+    sync-window-months: ${GMAIL_SYNC_WINDOW_MONTHS:6}
   openai:
     api-key: ${OPENAI_API_KEY:}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}

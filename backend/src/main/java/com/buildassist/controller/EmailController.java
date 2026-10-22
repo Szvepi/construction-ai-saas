@@ -1,6 +1,7 @@
 package com.buildassist.controller;
 
 import com.buildassist.dto.EmailDtos;
+import com.buildassist.dto.EmailDtos.BackfillResponse;
 import com.buildassist.dto.EmailDtos.EmailDetailResponse;
 import com.buildassist.dto.EmailDtos.EmailSearchResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
@@ -8,6 +9,7 @@ import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.security.SecurityUtils;
 import com.buildassist.service.EmailService;
+import com.buildassist.service.GmailInboxSyncService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class EmailController {
 
     private final EmailService emailService;
+    private final GmailInboxSyncService gmailInboxSyncService;
 
-    public EmailController(EmailService emailService) {
+    public EmailController(EmailService emailService, GmailInboxSyncService gmailInboxSyncService) {
         this.emailService = emailService;
+        this.gmailInboxSyncService = gmailInboxSyncService;
     }
 
     @GetMapping
@@ -54,7 +58,12 @@ public class EmailController {
 
     @PostMapping("/refresh")
     public RefreshEmailsResponse refresh() {
-        return emailService.refreshFromGmail(SecurityUtils.currentUserId());
+        return gmailInboxSyncService.refresh(SecurityUtils.currentUserId());
+    }
+
+    @PostMapping("/backfill")
+    public BackfillResponse backfill() {
+        return gmailInboxSyncService.backfill(SecurityUtils.currentUserId());
     }
 
     @PatchMapping("/{id}/category")

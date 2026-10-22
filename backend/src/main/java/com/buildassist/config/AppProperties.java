@@ -35,6 +35,7 @@ public class AppProperties {
         private String clientId;
         private String clientSecret;
         private String redirectUri;
+        private int syncWindowMonths = 6;
     }
 
     @Data
