@@ -4,7 +4,21 @@
     <meta charset="UTF-8"/>
     <title>Árajánlat</title>
 </head>
-<body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+<body style="font-family: 'DejaVu Sans', Arial, sans-serif; color: #333; line-height: 1.5; font-size: 10pt;">
+<div style="border-bottom: 2px solid #1e3a5f; padding-bottom: 16px; margin-bottom: 24px;">
+    <h1 style="margin: 0; color: #1e3a5f; font-size: 22pt;">Árajánlat</h1>
+    <p style="margin: 8px 0 0; color: #475569;">
+        Ajánlatszám: <strong th:text="${quoteNumber}">AA-1</strong>
+        <span style="float: right;">Keltezés: <span th:text="${quoteDate}">2026. 01. 01.</span></span>
+    </p>
+    <div th:if="${!#strings.isEmpty(companyName)}" style="margin-top: 18px;">
+        <strong style="font-size: 13pt;" th:text="${companyName}">Cégnév</strong>
+        <span th:if="${!#strings.isEmpty(legalForm)}" th:text="${' (' + legalForm + ')'}"></span><br/>
+        <span th:text="${companyAddress}">Székhely</span><span th:if="${!#strings.isEmpty(country)}">, <span th:text="${country}"></span></span><br/>
+        <span th:if="${!#strings.isEmpty(taxNumber)}">Adószám: <span th:text="${taxNumber}"></span></span>
+        <span th:if="${!#strings.isEmpty(euTaxNumber)}"><br/>Közösségi adószám: <span th:text="${euTaxNumber}"></span></span>
+    </div>
+</div>
 <p>Tisztelt <span th:text="${clientName}">Érdeklődő</span>!</p><br/>
 <p>Köszönjük megkeresését. A megadott paraméterek alapján az alábbi árajánlatot állítottuk össze Önnek:</p>
 <br/>
@@ -15,8 +29,12 @@
         <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">Megnevezés</th>
         <th style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;">Mennyiség</th>
         <th style="padding: 10px; text-align: center; border: 1px solid #e2e8f0;">Egység</th>
-        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;">Egységár</th>
-        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;">Nettó tartalom</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Bruttó egységár</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:unless="${vatRegistered}">Egységár</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Nettó érték</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">ÁFA (<span th:text="${vatRate}">27</span>%)</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:unless="${vatRegistered}">Fizetendő</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Bruttó érték</th>
     </tr>
     </thead>
     <tbody>
@@ -29,26 +47,46 @@
         <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><span
                 th:text="${line.unitPrice}">0</span> Ft
         </td>
-        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;"><strong><span
-                th:text="${line.subtotal}">0</span> Ft</strong></td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}"><span
+                th:text="${line.netSubtotal}">0</span> Ft</td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}"><span
+                th:text="${line.vatAmount}">0</span> Ft</td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:unless="${vatRegistered}"><strong><span
+                th:text="${line.grossSubtotal}">0</span> Ft</strong></td>
+        <td style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}"><strong><span
+                th:text="${line.grossSubtotal}">0</span> Ft</strong></td>
     </tr>
     </tbody>
 </table>
 
-<div style="margin: 20px 0; text-align: right;">
-    <h3 style="margin: 0; color: #1e293b;">Végösszeg: <span th:text="${grandTotal}">0</span> Ft</h3>
+<div style="margin: 20px 0; text-align: right;" th:if="${vatRegistered}">
+    <p style="margin: 0;">Nettó összesen: <span th:text="${netTotal}">0</span> Ft</p>
+    <p style="margin: 0;">ÁFA (<span th:text="${vatRate}">27</span>%): <span th:text="${vatTotal}">0</span> Ft</p>
+    <h3 style="margin: 6px 0 0; color: #1e293b;">Bruttó fizetendő: <span th:text="${grossTotal}">0</span> Ft</h3>
+</div>
+<div style="margin: 20px 0; text-align: right;" th:unless="${vatRegistered}">
+    <h3 style="margin: 0; color: #1e293b;">Fizetendő összeg: <span th:text="${grossTotal}">0</span> Ft</h3>
+</div>
+
+<div th:if="${!#strings.isEmpty(additionalNotes)}" style="margin: 20px 0;">
+    <h3 style="margin-bottom: 6px; color: #1e293b;">Kiegészítő megjegyzés</h3>
+    <p style="margin-top: 0; white-space: pre-line;" th:text="${additionalNotes}"></p>
 </div>
 
 <br/>
-<p>Jelen árajánlat a kiküldéstől számított 15 napig érvényes.</p>
-<p>A megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot
-    a helyszíni felmérést követően rögzítjük.</p>
-<p>Az árajánlatban szereplő árak az ÁFA-t nem tartalmazzák.</p>
+<div th:if="${!#strings.isEmpty(offerTerms)}" style="white-space: pre-line;">
+    <p th:text="${offerTerms}"></p>
+</div>
+<p th:if="${vatRegistered}">Az árjegyzék bruttó árai 27% ÁFÁ-t tartalmaznak; az ajánlat ezt nettó és ÁFA bontásban is feltünteti.</p>
+<p th:unless="${vatRegistered}">Az ajánlatban szereplő árak ÁFA felszámítása nélkül értendők.</p>
 <br/>
 <p>Amennyiben ajánlatunk elnyerte tetszését, vagy kérdése lenne a kivitelezéssel kapcsolatban, készséggel állunk
     rendelkezésére.</p>
 
 <p>Üdvözlettel,<br/>
+    <span th:if="${!#strings.isEmpty(offerorName)}" th:text="${offerorName}"></span><br
+            th:if="${!#strings.isEmpty(offerorName)}"/>
+    <span th:if="${!#strings.isEmpty(offerorPhone)}">Telefon: <span th:text="${offerorPhone}"></span></span>
 </p>
 
 </body>

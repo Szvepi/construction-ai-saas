@@ -7,14 +7,12 @@ import com.buildassist.dto.AiDtos.DraftPricingInfo;
 import com.buildassist.dto.DraftDtos;
 import com.buildassist.model.*;
 import com.buildassist.repository.CatalogItemRepository;
+import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.mail.Message;
-import jakarta.mail.Session;
-import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -41,30 +39,39 @@ public class AiDraftService {
     private final ChatModel chatModel;
     private final EmailRepository emailRepository;
     private final CatalogItemRepository catalogItemRepository;
+    private final CompanyProfileRepository companyProfileRepository;
     private final GmailConnectionRepository gmailConnectionRepository;
     private final EmailDraftRepository emailDraftRepository;
     private final TokenEncryptionService tokenEncryptionService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final SpringTemplateEngine templateEngine;
+    private final QuotePdfService quotePdfService;
+    private final QuoteEmailMessageFactory quoteEmailMessageFactory;
 
     public AiDraftService(
             ChatModel chatModel,
             EmailRepository emailRepository,
             CatalogItemRepository catalogItemRepository,
+            CompanyProfileRepository companyProfileRepository,
             GmailConnectionRepository gmailConnectionRepository,
             EmailDraftRepository emailDraftRepository,
             TokenEncryptionService tokenEncryptionService,
-            SpringTemplateEngine templateEngine) {
+            SpringTemplateEngine templateEngine,
+            QuotePdfService quotePdfService,
+            QuoteEmailMessageFactory quoteEmailMessageFactory) {
         this.chatModel = chatModel;
         this.emailRepository = emailRepository;
         this.catalogItemRepository = catalogItemRepository;
+        this.companyProfileRepository = companyProfileRepository;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.emailDraftRepository = emailDraftRepository;
         this.tokenEncryptionService = tokenEncryptionService;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newHttpClient();
         this.templateEngine = templateEngine;
+        this.quotePdfService = quotePdfService;
+        this.quoteEmailMessageFactory = quoteEmailMessageFactory;
     }
 
     @Transactional
@@ -72,12 +79,19 @@ public class AiDraftService {
         log.info("Starting draft generation for emailId={}, userId={}", emailId, userId);
         DraftDtos.AnalysisResponse analysis = analyzeEmail(emailId, userId);
         return finalizeDraft(analysis.draftId(),
-                new DraftDtos.FinalizeDraftRequest(analysis.clientName(), analysis.lineItems()),
+                new DraftDtos.FinalizeDraftRequest(
+                        analysis.clientName(), analysis.lineItems(), analysis.additionalNotes(),
+                        analysis.includeAdditionalNotes()),
                 userId);
     }
 
     @Transactional
     public DraftDtos.AnalysisResponse analyzeEmail(Long emailId, Long userId) {
+        return analyzeEmail(emailId, userId, null);
+    }
+
+    @Transactional
+    public DraftDtos.AnalysisResponse analyzeEmail(Long emailId, Long userId, String additionalNotes) {
         Email email = emailRepository.findByIdAndGmailConnectionUserId(emailId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Email not found or access denied"));
 
@@ -86,7 +100,8 @@ public class AiDraftService {
             throw new IllegalArgumentException("No catalog items found for user");
         }
 
-        AiExtractionResult extractionResult = extractItemsFromEmail(email, catalogItems);
+        String normalizedNotes = normalizeOptional(additionalNotes);
+        AiExtractionResult extractionResult = extractItemsFromEmail(email, catalogItems, normalizedNotes);
         log.debug("AI extraction result: {} items found for client: {}",
                 extractionResult.items() != null ? extractionResult.items().size() : 0,
                 extractionResult.clientName());
@@ -97,6 +112,8 @@ public class AiDraftService {
         emailDraft.setEmail(email);
         emailDraft.setDraftBody("");
         emailDraft.setClientName(extractionResult.clientName());
+        emailDraft.setAdditionalNotes(normalizedNotes);
+        emailDraft.setIncludeAdditionalNotes(true);
         emailDraft.setStatus(EmailDraft.DraftStatus.PENDING_REVIEW);
         emailDraft.setLineItemsJson(serializeJsonList(pricingInfo.items()));
         emailDraft.setReviewWarningsJson(serializeJsonList(extractionResult.reviewWarnings()));
@@ -109,7 +126,10 @@ public class AiDraftService {
                 extractionResult.clientName(),
                 pricingInfo.items(),
                 extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : List.of(),
-                extractionResult.reviewWarnings() != null ? extractionResult.reviewWarnings() : List.of()
+                extractionResult.reviewWarnings() != null ? extractionResult.reviewWarnings() : List.of(),
+                savedDraft.getAdditionalNotes(),
+                savedDraft.isIncludeAdditionalNotes(),
+                isVatRegistered(userId)
         );
     }
 
@@ -129,7 +149,7 @@ public class AiDraftService {
         }
 
         List<DraftLineItem> lineItems = request.lineItems() != null && !request.lineItems().isEmpty()
-                ? request.lineItems()
+                ? recalculateGrossLineItems(request.lineItems())
                 : draft.getLineItems();
         String clientName = request.clientName() != null && !request.clientName().isBlank()
                 ? request.clientName()
@@ -137,10 +157,18 @@ public class AiDraftService {
 
         // Csak menti az adatokat az adatbázisban, nem küld Gmail-hez
         draft.setClientName(clientName);
+        if (request.additionalNotes() != null) {
+            draft.setAdditionalNotes(normalizeOptional(request.additionalNotes()));
+        }
+        if (request.includeAdditionalNotes() != null) {
+            draft.setIncludeAdditionalNotes(request.includeAdditionalNotes());
+        }
         draft.setLineItemsJson(serializeJsonList(lineItems));
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName());
+        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(),
+                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
+                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
     }
 
     @Transactional
@@ -159,21 +187,28 @@ public class AiDraftService {
         }
 
         List<DraftLineItem> lineItems = request.lineItems() != null && !request.lineItems().isEmpty()
-                ? request.lineItems()
+                ? recalculateGrossLineItems(request.lineItems())
                 : draft.getLineItems();
         String clientName = request.clientName() != null && !request.clientName().isBlank()
                 ? request.clientName()
-                : (email.getFromAddress() != null ? email.getFromAddress() : "Érdeklődő");
+                : (draft.getClientName() != null
+                        ? draft.getClientName()
+                        : (email.getFromAddress() != null ? email.getFromAddress() : "Érdeklődő"));
+        String additionalNotes = request.additionalNotes() != null
+                ? normalizeOptional(request.additionalNotes())
+                : draft.getAdditionalNotes();
+        boolean includeAdditionalNotes = request.includeAdditionalNotes() != null
+                ? request.includeAdditionalNotes()
+                : draft.isIncludeAdditionalNotes();
 
-        BigDecimal total = lineItems.stream()
-                .map(item -> item.subtotal() == null ? BigDecimal.ZERO : item.subtotal())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        String draftHtmlBody = generateDraftHtml(new DraftPricingInfo(lineItems, total), clientName);
+        String draftHtmlBody = renderDraftHtml(
+                draftId, lineItems, clientName, additionalNotes, includeAdditionalNotes, userId);
 
         // Csak menti az adatokat, nem küld emailt
         draft.setDraftBody(draftHtmlBody);
         draft.setClientName(clientName);
+        draft.setAdditionalNotes(additionalNotes);
+        draft.setIncludeAdditionalNotes(includeAdditionalNotes);
         draft.setLineItemsJson(serializeJsonList(lineItems));
         if (draft.getReviewWarningsJson() == null) {
             draft.setReviewWarningsJson(serializeJsonList(List.of()));
@@ -183,7 +218,9 @@ public class AiDraftService {
         }
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draftHtmlBody, draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName());
+        return new DraftDtos.GenerateDraftResponse(draftId, draftHtmlBody, draft.getUnmappedRequests(),
+                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
+                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
     }
 
     @Transactional
@@ -201,19 +238,77 @@ public class AiDraftService {
             throw new IllegalArgumentException("Draft preview must be generated first");
         }
 
-        // Küld emailt a tárolt draft tartalmával
+        DraftDtos.FinalizeDraftRequest finalRequest = request != null
+                ? request
+                : new DraftDtos.FinalizeDraftRequest(
+                        draft.getClientName(), draft.getLineItems(), draft.getAdditionalNotes(),
+                        draft.isIncludeAdditionalNotes());
+        previewDraft(draftId, finalRequest, userId);
+
         try {
-            saveDraftToGmail(email, draft.getDraftBody(), userId);
+            CompanyProfile profile = companyProfileRepository.findByUserId(userId).orElse(null);
+            byte[] pdf = quotePdfService.render(draft.getDraftBody());
+            saveDraftToGmail(email, pdf, "arajanlat-" + draftId + ".pdf",
+                    draft.getClientName(), profile, userId);
         } catch (Exception ex) {
-            throw new IllegalStateException("Failed to send finalized draft to Gmail", ex);
+            throw new IllegalStateException("Failed to create Gmail draft with PDF quote", ex);
         }
 
-        // Frissíti a státuszt
         draft.setStatus(EmailDraft.DraftStatus.READY);
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName());
+        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(),
+                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
+                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
     }
+
+    @Transactional
+    public byte[] generatePdf(Long draftId, Long userId) {
+        EmailDraft draft = emailDraftRepository.findById(draftId)
+            .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
+
+        Email email = draft.getEmail();
+        if (email == null || email.getGmailConnection() == null || email.getGmailConnection().getUser() == null
+                || !Objects.equals(email.getGmailConnection().getUser().getId(), userId)) {
+            throw new IllegalArgumentException("Draft not found or access denied");
+        }
+        if (draft.getDraftBody() == null || draft.getDraftBody().isBlank()) {
+            throw new IllegalArgumentException("Generate the quote preview before requesting its PDF");
+        }
+
+        String currentHtml = renderDraftHtml(
+                draftId, draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
+                draft.isIncludeAdditionalNotes(), userId);
+        draft.setDraftBody(currentHtml);
+        emailDraftRepository.save(draft);
+        return quotePdfService.render(currentHtml);
+    }
+
+    private String renderDraftHtml(
+            Long draftId, List<DraftLineItem> lineItems, String clientName, String additionalNotes,
+            boolean includeAdditionalNotes, Long userId) {
+        CompanyProfile profile = companyProfileRepository.findByUserId(userId).orElse(null);
+        List<DraftLineItem> recalculatedLineItems = recalculateGrossLineItems(lineItems);
+        BigDecimal total = recalculatedLineItems.stream()
+                .map(DraftLineItem::subtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return generateDraftHtml(
+                draftId, new DraftPricingInfo(recalculatedLineItems, total), clientName,
+                includeAdditionalNotes ? additionalNotes : null, profile);
+    }
+
+    private List<DraftLineItem> recalculateGrossLineItems(List<DraftLineItem> lineItems) {
+        return lineItems.stream()
+                .map(item -> {
+                    if (item == null || item.quantity() == null || item.unitPrice() == null) {
+                        throw new IllegalArgumentException("Quote line items must include quantity and gross unit price");
+                    }
+                    BigDecimal grossSubtotal = item.quantity().multiply(item.unitPrice())
+                            .setScale(0, RoundingMode.HALF_UP);
+                    return new DraftLineItem(
+                            item.name(), item.unit(), item.quantity(), item.unitPrice(), grossSubtotal);
+                })
+                .toList();
     }
 
     private String serializeJsonList(List<?> items) {
@@ -228,7 +323,21 @@ public class AiDraftService {
         }
     }
 
-    private AiExtractionResult extractItemsFromEmail(Email email, List<CatalogItem> catalogItems) {
+    private String normalizeOptional(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private boolean isVatRegistered(Long userId) {
+        return companyProfileRepository.findByUserId(userId)
+                .map(CompanyProfile::isVatRegistered)
+                .orElse(false);
+    }
+
+    private AiExtractionResult extractItemsFromEmail(
+            Email email, List<CatalogItem> catalogItems, String additionalNotes) {
         String catalogReference = buildCatalogReference(catalogItems);
         log.info("extractItemsFromEmail: catalogReference: {}", catalogReference);
         String emailBody = email.getBodyText() != null ? email.getBodyText() : "";
@@ -256,6 +365,7 @@ public class AiDraftService {
                            - INCOMPLETE PERIMETER / BORDER: If edging/curbing ('szegélykő') is requested for fewer than 4 sides (e.g., "csak 2 oldalra kérek szegélyt") or partial perimeter, AND the email does NOT mention connecting to an existing structure (e.g., house wall, fence, existing paving):
                              Add a warning: "Az ügyfél csak [X] oldalra kért szegélykövet. Ha a terület nem csatlakozik meglévő építményhez/burkolathoz, a teljes körbekerítéshez több szegélykőre lesz szükség."
                            - AMBIGUOUS SCOPE: Flag any missing parameters that could change the quote significantly (e.g., unknown ground type, missing depth for excavation).
+                        9. Consider the contractor's supplementary consultation notes when extracting work items and quantities, while keeping the email as the source for the client's identity.
                 
                         CATALOG REFERENCE (ID - Name - Unit):
                         {catalogReference}
@@ -264,6 +374,9 @@ public class AiDraftService {
                 
                         EMAIL BODY:
                         {emailBody}
+
+                        CONTRACTOR'S SUPPLEMENTARY NOTES:
+                        {additionalNotes}
                 """;
 
         try {
@@ -274,6 +387,7 @@ public class AiDraftService {
                             .param("catalogReference", catalogReference)
                             .param("format", outputConverter.getFormat())
                             .param("emailBody", emailBody)
+                            .param("additionalNotes", additionalNotes != null ? additionalNotes : "Nincs kiegészítő megjegyzés.")
                     )
                     .call()
                     .content();
@@ -357,30 +471,64 @@ public class AiDraftService {
         }
     }
 
-    private String generateDraftHtml(DraftPricingInfo pricing, String clientName) {
+    private String generateDraftHtml(
+            Long draftId, DraftPricingInfo pricing, String clientName, String additionalNotes, CompanyProfile profile) {
         java.text.NumberFormat currencyFormat = java.text.NumberFormat.getInstance(new java.util.Locale("hu", "HU"));
         currencyFormat.setMaximumFractionDigits(0);
+        boolean vatRegistered = profile != null && profile.isVatRegistered();
 
         List<Map<String, String>> lines = new ArrayList<>();
+        BigDecimal netTotal = BigDecimal.ZERO;
+        BigDecimal vatTotal = BigDecimal.ZERO;
         for (DraftLineItem item : pricing.items()) {
+            BigDecimal grossSubtotal = item.subtotal();
+            BigDecimal netSubtotal = vatRegistered
+                    ? grossSubtotal.divide(new BigDecimal("1.27"), 0, RoundingMode.HALF_UP)
+                    : grossSubtotal;
+            BigDecimal vatAmount = grossSubtotal.subtract(netSubtotal);
+            netTotal = netTotal.add(netSubtotal);
+            vatTotal = vatTotal.add(vatAmount);
+
             Map<String, String> m = new HashMap<>();
             m.put("name", escape(item.name()));
             m.put("quantity", String.format(new java.util.Locale("hu", "HU"), "%.2f", item.quantity()));
             m.put("unit", escape(item.unit()));
             m.put("unitPrice", currencyFormat.format(item.unitPrice()));
-            m.put("subtotal", currencyFormat.format(item.subtotal()));
+            m.put("netSubtotal", currencyFormat.format(netSubtotal));
+            m.put("vatAmount", currencyFormat.format(vatAmount));
+            m.put("grossSubtotal", currencyFormat.format(grossSubtotal));
             lines.add(m);
         }
 
-        String grandTotal = currencyFormat.format(pricing.grandTotal());
+        String grossTotal = currencyFormat.format(pricing.grandTotal());
 
         Context ctx = new Context(new java.util.Locale("hu", "HU"));
         ctx.setVariable("lines", lines);
-        ctx.setVariable("grandTotal", grandTotal);
+        ctx.setVariable("vatRegistered", vatRegistered);
+        ctx.setVariable("netTotal", currencyFormat.format(netTotal));
+        ctx.setVariable("vatTotal", currencyFormat.format(vatTotal));
+        ctx.setVariable("grossTotal", grossTotal);
+        ctx.setVariable("grandTotal", grossTotal);
+        ctx.setVariable("vatRate", "27");
+        ctx.setVariable("quoteNumber", "AA-" + draftId);
+        ctx.setVariable("quoteDate", java.time.LocalDate.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy. MM. dd.", new java.util.Locale("hu", "HU"))));
+        ctx.setVariable("companyName", profile != null ? profile.getCompanyName() : "");
+        ctx.setVariable("legalForm", profile != null ? profile.getLegalForm() : "");
+        ctx.setVariable("country", profile != null ? profile.getCountry() : "");
+        ctx.setVariable("companyAddress", buildCompanyAddress(profile));
+        ctx.setVariable("taxNumber", profile != null ? profile.getTaxNumber() : "");
+        ctx.setVariable("euTaxNumber", profile != null ? profile.getEuTaxNumber() : "");
+        ctx.setVariable("offerTerms", profile != null && profile.getOfferTerms() != null ? profile.getOfferTerms() : CompanyProfile.DEFAULT_OFFER_TERMS);
 
         // Ha nem sikerült nevet kinyerni, egy általános megszólítást adunk
         String greetingName = (clientName != null && !clientName.isBlank()) ? clientName : "Érdeklődő";
         ctx.setVariable("clientName", greetingName);
+        ctx.setVariable("additionalNotes", additionalNotes != null ? additionalNotes : "");
+        ctx.setVariable("offerorName", profile != null && profile.getOfferorName() != null
+                ? profile.getOfferorName() : "");
+        ctx.setVariable("offerorPhone", profile != null && profile.getOfferorPhone() != null
+                ? profile.getOfferorPhone() : "");
 
         return templateEngine.process("draft", ctx);
     }
@@ -394,21 +542,45 @@ public class AiDraftService {
                 .replace("'", "&#39;");
     }
 
-    private void saveDraftToGmail(Email email, String draftHtmlBody, Long userId) throws Exception {
+    private String buildCompanyAddress(CompanyProfile profile) {
+        if (profile == null) {
+            return "";
+        }
+        StringBuilder address = new StringBuilder()
+                .append(profile.getPostalCode()).append(' ')
+                .append(profile.getCity()).append(", ")
+                .append(profile.getStreetName()).append(' ')
+                .append(profile.getStreetType()).append(' ')
+                .append(profile.getHouseNumber());
+        appendAddressPart(address, profile.getBuilding(), "ép.");
+        appendAddressPart(address, profile.getStaircase(), "lh.");
+        appendAddressPart(address, profile.getFloor(), "em.");
+        appendAddressPart(address, profile.getDoor(), "ajtó");
+        return address.toString();
+    }
+
+    private void appendAddressPart(StringBuilder address, String value, String label) {
+        if (value != null && !value.isBlank()) {
+            address.append(", ").append(label).append(' ').append(value);
+        }
+    }
+
+    private void saveDraftToGmail(
+            Email email, byte[] pdf, String filename, String clientName, CompanyProfile profile, Long userId) throws Exception {
         GmailConnection gmailConnection = gmailConnectionRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Gmail connection not found for user"));
 
         String accessTokenEncrypted = gmailConnection.getAccessTokenEncrypted();
         String accessToken = tokenEncryptionService.decrypt(accessTokenEncrypted);
 
-        Properties props = new Properties();
-        Session session = Session.getDefaultInstance(props, null);
-        MimeMessage mimeMessage = new MimeMessage(session);
-
-        mimeMessage.setFrom(new InternetAddress(gmailConnection.getGmailAddress()));
-        mimeMessage.addRecipient(Message.RecipientType.TO, new InternetAddress(email.getFromAddress()));
-        mimeMessage.setSubject("Re: " + (email.getSubject() != null ? email.getSubject() : "(no subject)"));
-        mimeMessage.setContent(draftHtmlBody, "text/html; charset=UTF-8");
+        MimeMessage mimeMessage = quoteEmailMessageFactory.create(
+                gmailConnection.getGmailAddress(),
+                email.getFromAddress(),
+                "Re: " + (email.getSubject() != null ? email.getSubject() : "(no subject)"),
+                pdf,
+                filename,
+                clientName,
+                profile);
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         mimeMessage.writeTo(buffer);

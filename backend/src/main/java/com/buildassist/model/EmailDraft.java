@@ -34,6 +34,12 @@ public class EmailDraft {
     @Column(name = "client_name")
     private String clientName;
 
+    @Column(name = "additional_notes", columnDefinition = "TEXT")
+    private String additionalNotes;
+
+    @Column(name = "include_additional_notes", nullable = false)
+    private boolean includeAdditionalNotes = true;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private DraftStatus status = DraftStatus.DRAFT;
@@ -90,4 +96,3 @@ public class EmailDraft {
         }
     }
 }
-

@@ -15,6 +15,14 @@ const CATEGORY_MAP = {
     SPAM: {label: "Spam", color: "bg-red-100 text-red-800 border-red-200"},
 };
 
+const DRAFT_STATUS_MAP = {
+    NONE: {label: "Nincs ajánlat", color: "bg-slate-100 text-slate-600 border-slate-200"},
+    DRAFT: {label: "Piszkozat", color: "bg-slate-100 text-slate-700 border-slate-200"},
+    PENDING_REVIEW: {label: "Ellenőrzésre vár", color: "bg-amber-100 text-amber-800 border-amber-200"},
+    READY: {label: "Kész", color: "bg-emerald-100 text-emerald-800 border-emerald-200"},
+    SENT: {label: "Elküldve", color: "bg-violet-100 text-violet-800 border-violet-200"},
+} as const;
+
 function formatDate(dateString: string): string {
     const date = new Date(dateString);
     const now = new Date();
@@ -132,6 +140,7 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                 <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
                     {filteredEmails.map((email) => {
                         const badge = CATEGORY_MAP[email.category] || CATEGORY_MAP.OTHER;
+                        const draftStatus = DRAFT_STATUS_MAP[email.draftStatus ?? "NONE"];
                         const availableCategories = getAvailableCategories(email.category);
                         const hasOptions = availableCategories.length > 0;
                         const isOpen = openDropdown === email.id;
@@ -163,6 +172,13 @@ export function EmailList({emails, onEmailUpdated}: Props) {
                                                     className={`inline-block rounded px-2 py-0.5 text-xs font-medium border ${badge.color}`}>
                                                     {badge.label}
                                                 </span>
+
+                                                {email.category === "QUOTE_REQUEST" && (
+                                                    <span
+                                                        className={`inline-block rounded px-2 py-0.5 text-xs font-medium border ${draftStatus.color}`}>
+                                                        {draftStatus.label}
+                                                    </span>
+                                                )}
 
                                                 {email.replied && (
                                                     <span

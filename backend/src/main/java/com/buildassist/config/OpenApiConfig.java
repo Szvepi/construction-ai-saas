@@ -18,10 +18,10 @@ public class OpenApiConfig {
     public OpenAPI openAPI() {
         return new OpenAPI()
             .info(new Info()
-                .title("BuildAssist Email API")
-                .description("AI email assistant MVP for construction companies")
+                .title("MIRA API")
+                .description("MIRA – Az okos asszisztens az építkezésen. AI-alapú asszisztens építőipari vállalkozások számára.")
                 .version("0.0.1")
-                .contact(new Contact().name("BuildAssist")))
+                .contact(new Contact().name("MIRA")))
             .addSecurityItem(new SecurityRequirement().addList(BEARER_JWT))
             .components(new Components()
                 .addSecuritySchemes(BEARER_JWT, new SecurityScheme()

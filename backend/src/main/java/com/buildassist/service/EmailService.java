@@ -8,6 +8,7 @@ import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.model.GmailConnection;
+import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
@@ -35,6 +36,7 @@ public class EmailService {
     private final EmailDraftRepository emailDraftRepository;
     private final EmailRepository emailRepository;
     private final GmailConnectionRepository gmailConnectionRepository;
+    private final CompanyProfileRepository companyProfileRepository;
     private final GmailService gmailService;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -43,11 +45,13 @@ public class EmailService {
             EmailRepository emailRepository,
             EmailDraftRepository emailDraftRepository,
             GmailConnectionRepository gmailConnectionRepository,
-            GmailService gmailService) {
+            GmailService gmailService,
+            CompanyProfileRepository companyProfileRepository) {
         this.emailRepository = emailRepository;
         this.emailDraftRepository = emailDraftRepository;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gmailService = gmailService;
+        this.companyProfileRepository = companyProfileRepository;
     }
 
     public List<EmailSummaryResponse> listEmails(Long userId) {
@@ -66,7 +70,10 @@ public class EmailService {
                         email.getFromAddress(),
                         email.getEmailReceivedAt(),
                         email.isReplied(),
-                        email.getCategory()))
+                        email.getCategory(),
+                        emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(email.getId())
+                                .map(com.buildassist.model.EmailDraft::getStatus)
+                                .orElse(null)))
                 .toList();
     }
 
@@ -90,7 +97,11 @@ public class EmailService {
         DraftDtos.GenerateDraftResponse draftEmail =
                 emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(emailId)
                         .map(draft -> new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(),
-                                draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName()))
+                                draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(),
+                                draft.getClientName(), draft.getAdditionalNotes(), draft.isIncludeAdditionalNotes(),
+                                companyProfileRepository.findByUserId(userId)
+                                        .map(com.buildassist.model.CompanyProfile::isVatRegistered)
+                                        .orElse(false)))
                         .orElse(null);
 
         return new EmailDetailResponse(
@@ -416,4 +427,3 @@ public class EmailService {
         return "";
     }
 }
-

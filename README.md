@@ -1,4 +1,4 @@
-# BuildAssist Email
+# MIRA – Az okos asszisztens az építkezésen
 
 Ultra-minimal AI email assistant for small construction companies (Hungary). MVP scaffold — business logic is
 placeholder only.

@@ -1,7 +1,7 @@
 "use client";
 
 import {useEffect, useMemo, useState} from "react";
-import {ApiError, apiFetch} from "@/lib/api";
+import {ApiError, apiFetch, apiFetchBlob} from "@/lib/api";
 import type {AnalysisResponse, DraftLineItem, EmailDetail, GenerateDraftResponse} from "@/lib/types";
 import {Button} from "@/components/ui/Button";
 
@@ -22,40 +22,96 @@ function makeRow(name = "", unit = "m2", quantity = 1, unitPrice = 0): DraftLine
         unit,
         quantity,
         unitPrice,
-        subtotal: quantity * unitPrice,
+        subtotal: Math.round(quantity * unitPrice),
     };
+}
+
+function capitalizeFirstLetter(value: string): string {
+    return value.charAt(0).toLocaleUpperCase("hu-HU") + value.slice(1);
 }
 
 export function DraftPanel({emailId, email, onSent}: Props) {
     const [draftId, setDraftId] = useState<number | null>(null);
     const [clientName, setClientName] = useState("");
+    const [additionalNotes, setAdditionalNotes] = useState("");
+    const [includeAdditionalNotes, setIncludeAdditionalNotes] = useState(true);
+    const [vatRegistered, setVatRegistered] = useState(false);
     const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
     const [unmapped, setUnmapped] = useState<string[]>([]);
     const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
     const [body, setBody] = useState("");
+    const [pdfUrl, setPdfUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const [previewGenerated, setPreviewGenerated] = useState(false);
 
     useEffect(() => {
+        let active = true;
+
         if (email?.draftEmail) {
             setDraftId(email.draftEmail.draftId);
             setBody(email.draftEmail.draftBody);
+            setPreviewGenerated(false);
+            setPdfUrl(null);
             setClientName(email.draftEmail.clientName ?? "");
+            setAdditionalNotes(email.draftEmail.additionalNotes ?? "");
+            setIncludeAdditionalNotes(email.draftEmail.includeAdditionalNotes ?? true);
+            setVatRegistered(email.draftEmail.vatRegistered ?? false);
             setUnmapped(email.draftEmail.unmappedRequests ?? []);
             setReviewWarnings(email.draftEmail.reviewWarnings ?? []);
             setLineItems((email.draftEmail.lineItems ?? []).map((item) => ({
                 ...item,
-                subtotal: Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0),
+                subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
             })));
+            if (email.draftEmail.draftBody) {
+                apiFetchBlob(`/api/drafts/${email.draftEmail.draftId}/pdf`)
+                    .then((blob) => {
+                        if (!active) return;
+                        setPdfUrl(URL.createObjectURL(blob));
+                        setPreviewGenerated(true);
+                    })
+                    .catch((err) => {
+                        if (!active) return;
+                        if (err instanceof ApiError && err.status === 401) {
+                            window.location.assign("/auth/login");
+                            return;
+                        }
+                        setError(err instanceof ApiError ? err.message : "A PDF-előnézet betöltése sikertelen.");
+                    });
+            }
+        } else {
+            setDraftId(null);
+            setBody("");
+            setPdfUrl(null);
+            setPreviewGenerated(false);
+            setClientName("");
+            setAdditionalNotes("");
+            setIncludeAdditionalNotes(true);
+            setVatRegistered(false);
+            setReviewWarnings([]);
+            setUnmapped([]);
+            setLineItems([]);
         }
+        return () => {
+            active = false;
+        };
     }, [email]);
+
+    useEffect(() => () => {
+        if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    }, [pdfUrl]);
 
     const total = useMemo(
         () => lineItems.reduce((sum, item) => sum + item.subtotal, 0),
         [lineItems],
     );
+    const vatTotals = useMemo(() => lineItems.reduce((totals, item) => {
+        const net = Math.round(item.subtotal / 1.27);
+        totals.net += net;
+        totals.vat += item.subtotal - net;
+        return totals;
+    }, {net: 0, vat: 0}), [lineItems]);
 
     const isQuoteRequest = email?.category === "QUOTE_REQUEST";
 
@@ -64,16 +120,23 @@ export function DraftPanel({emailId, email, onSent}: Props) {
         setError(null);
         setSaveSuccess(null);
         try {
-            const data = await apiFetch<AnalysisResponse>(`/api/drafts/analyze/${emailId}`, {method: "POST"});
+            const data = await apiFetch<AnalysisResponse>(`/api/drafts/analyze/${emailId}`, {
+                method: "POST",
+                body: {additionalNotes},
+            });
             setDraftId(data.draftId);
             setClientName(data.clientName ?? "");
+            setAdditionalNotes(data.additionalNotes ?? "");
+            setVatRegistered(data.vatRegistered ?? false);
             setReviewWarnings(data.reviewWarnings ?? []);
             setUnmapped(data.unmappedRequests ?? []);
             setLineItems((data.lineItems ?? []).map((item) => ({
                 ...item,
-                subtotal: Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0),
+                subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
             })));
             setBody("");
+            setPdfUrl(null);
+            setPreviewGenerated(false);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "Az elemzés sikertelen");
         } finally {
@@ -90,11 +153,13 @@ export function DraftPanel({emailId, email, onSent}: Props) {
         try {
             const payload = {
                 clientName: clientName || email?.fromAddress || "Érdeklődő",
+                additionalNotes,
+                includeAdditionalNotes,
                 lineItems: lineItems.map((item) => ({
                     ...item,
                     quantity: Number(item.quantity || 0),
                     unitPrice: Number(item.unitPrice || 0),
-                    subtotal: Number(item.quantity || 0) * Number(item.unitPrice || 0),
+                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
                 })),
             };
 
@@ -126,7 +191,7 @@ export function DraftPanel({emailId, email, onSent}: Props) {
             }
 
             if (field === "quantity" || field === "unitPrice") {
-                row.subtotal = Number(row.quantity ?? 0) * Number(row.unitPrice ?? 0);
+                row.subtotal = Math.round(Number(row.quantity ?? 0) * Number(row.unitPrice ?? 0));
             }
 
             next[index] = row;
@@ -145,63 +210,70 @@ export function DraftPanel({emailId, email, onSent}: Props) {
     }
 
     async function preview() {
-    if (!draftId) return;
-    setLoading(true);
-    setError(null);
-    setSaveSuccess(null);
+        if (!draftId) return;
+        setLoading(true);
+        setError(null);
+        setSaveSuccess(null);
 
-    try {
-      const payload = {
-        clientName: clientName || email?.fromAddress || "Érdeklődő",
-        lineItems: lineItems.map((item) => ({
-          ...item,
-          quantity: Number(item.quantity || 0),
-          unitPrice: Number(item.unitPrice || 0),
-          subtotal: Number(item.quantity || 0) * Number(item.unitPrice || 0),
-        })),
-      };
+        try {
+            const payload = {
+                clientName: clientName || email?.fromAddress || "Érdeklődő",
+                additionalNotes,
+                includeAdditionalNotes,
+                lineItems: lineItems.map((item) => ({
+                    ...item,
+                    quantity: Number(item.quantity || 0),
+                    unitPrice: Number(item.unitPrice || 0),
+                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+                })),
+            };
 
-      const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/preview`, {
-        method: "POST",
-        body: payload,
-      });
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/preview`, {
+                method: "POST",
+                body: payload,
+            });
 
-      setBody(data.draftBody ?? "");
-      setPreviewGenerated(true);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Az előnézet generálása sikertelen");
-    } finally {
-      setLoading(false);
+            setBody(data.draftBody ?? "");
+            const pdf = await apiFetchBlob(`/api/drafts/${draftId}/pdf`);
+            setPdfUrl(URL.createObjectURL(pdf));
+            setPreviewGenerated(true);
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Az előnézet generálása sikertelen");
+        } finally {
+            setLoading(false);
+        }
     }
-  }
 
-  async function finalize() {
-    if (!draftId) return;
-    setLoading(true);
-    setError(null);
+    async function finalize() {
+        if (!draftId) return;
+        setLoading(true);
+        setError(null);
 
-    try {
-      const payload = {
-        clientName: clientName || email?.fromAddress || "Érdeklődő",
-        lineItems: lineItems.map((item) => ({
-          ...item,
-          quantity: Number(item.quantity || 0),
-          unitPrice: Number(item.unitPrice || 0),
-          subtotal: Number(item.quantity || 0) * Number(item.unitPrice || 0),
-        })),
-      };
+        try {
+            const payload = {
+                clientName: clientName || email?.fromAddress || "Érdeklődő",
+                additionalNotes,
+                includeAdditionalNotes,
+                lineItems: lineItems.map((item) => ({
+                    ...item,
+                    quantity: Number(item.quantity || 0),
+                    unitPrice: Number(item.unitPrice || 0),
+                    subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+                })),
+            };
 
-      await apiFetch(`/api/drafts/${draftId}/finalize`, {
-        method: "POST",
-        body: payload,
-      });
+            await apiFetch(`/api/drafts/${draftId}/finalize`, {
+                method: "POST",
+                body: payload,
+            });
 
-      onSent();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "A küldés sikertelen");
-    } finally {
-      setLoading(false);
-    }
+            setSaveSuccess("A Gmail-piszkozat elkészült. Ellenőrizd és küldd el Gmailben.");
+            onSent();
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "A küldés sikertelen");
+        } finally {
+            setLoading(false);
+        }
     }
 
     if (!isQuoteRequest) {
@@ -218,15 +290,49 @@ export function DraftPanel({emailId, email, onSent}: Props) {
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
                 <h3 className="font-semibold text-slate-900">Ajánlat előkészítése</h3>
-                {!draftId && (
-                    <Button onClick={analyze} disabled={loading}>
-                        {loading ? "Elemzés…" : "AI elemzés"}
-                    </Button>
-                )}
+                <Button onClick={analyze} disabled={loading}>
+                    {loading ? "Elemzés…" : draftId ? "Újraelemzés a megjegyzésekkel" : "AI elemzés"}
+                </Button>
+            </div>
+
+            <div className="mt-4">
+                <label htmlFor="additional-notes" className="mb-2 block text-sm font-medium text-slate-700">
+                    Kiegészítés telefonos vagy helyszíni egyeztetés alapján
+                </label>
+                <textarea
+                    id="additional-notes"
+                    rows={4}
+                    value={additionalNotes}
+                    onChange={(event) => {
+                        setPreviewGenerated(false);
+                        setAdditionalNotes(event.target.value);
+                    }}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-brand-500 focus:outline-none"
+                    placeholder="Pl. telefonon egyeztettük, hogy a régi burkolat bontását is kérik; a terület 35 m²."
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                    Az AI az elemzéskor figyelembe veszi ezt a szöveget.
+                </p>
             </div>
 
             {draftId && (
                 <>
+                    <div className="mt-3 flex items-start gap-2">
+                        <input
+                            id="include-additional-notes"
+                            type="checkbox"
+                            checked={includeAdditionalNotes}
+                            onChange={(event) => {
+                                setPreviewGenerated(false);
+                                setIncludeAdditionalNotes(event.target.checked);
+                            }}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <label htmlFor="include-additional-notes" className="text-sm text-slate-700">
+                            Jelenjen meg ez a kiegészítés az árajánlatban
+                        </label>
+                    </div>
+
                     {reviewWarnings.length > 0 && (
                         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
                             <h4 className="text-sm font-semibold text-amber-900">⚠️ AI Figyelmeztetések</h4>
@@ -246,18 +352,19 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                             <ul className="mt-2 space-y-2 text-sm text-yellow-900">
                                 {unmapped.map((item, index) => (
                                     <li key={`${item}-${index}`} className="flex items-center justify-between gap-2">
-                                        <span>{item}</span>
+                                        <span>{capitalizeFirstLetter(item)}</span>
                                         <Button
                                             variant="secondary"
                                             className="!px-3 !py-1.5"
                                             onClick={() => {
+                                                setPreviewGenerated(false);
                                                 setLineItems((current) => [
                                                     ...current,
-                                                    makeRow(item, "db", 1, 0),
+                                                    makeRow(capitalizeFirstLetter(item), "db", 1, 0),
                                                 ]);
                                             }}
                                         >
-                                            Új sor
+                                            Hozzáadás
                                         </Button>
                                     </li>
                                 ))}
@@ -287,8 +394,8 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                                 <th className="px-2 py-1">Név</th>
                                 <th className="px-2 py-1">Mennyiség</th>
                                 <th className="px-2 py-1">Egység</th>
-                                <th className="px-2 py-1">Egységár</th>
-                                <th className="px-2 py-1">Összeg</th>
+                                <th className="px-2 py-1">{vatRegistered ? "Bruttó egységár" : "Egységár"}</th>
+                                <th className="px-2 py-1">{vatRegistered ? "Bruttó összeg" : "Fizetendő"}</th>
                                 <th className="px-2 py-1"/>
                             </tr>
                             </thead>
@@ -356,14 +463,27 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                     </div>
 
                     <div className="mt-4 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
-                        <span className="text-sm text-slate-600">Összesen</span>
-                        <span
-                            className="text-lg font-semibold text-slate-900">{currencyFormatter.format(total)} Ft</span>
+                        {vatRegistered ? (
+                            <div className="ml-auto text-right text-sm text-slate-600">
+                                <p>Nettó összesen: {currencyFormatter.format(vatTotals.net)} Ft</p>
+                                <p>ÁFA (27%): {currencyFormatter.format(vatTotals.vat)} Ft</p>
+                                <p className="text-lg font-semibold text-slate-900">
+                                    Bruttó fizetendő: {currencyFormatter.format(total)} Ft
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <span className="text-sm text-slate-600">Fizetendő összesen</span>
+                                <span className="text-lg font-semibold text-slate-900">
+                                    {currencyFormatter.format(total)} Ft
+                                </span>
+                            </>
+                        )}
                     </div>
 
                     <div className="mt-5 flex gap-2">
                         <Button variant="secondary" onClick={addCustomRow}>
-                            + Új sor
+                            + Új tétel
                         </Button>
                         <Button onClick={save} disabled={loading} variant="secondary">
                             {loading ? "Mentés…" : "Mentés"}
@@ -381,21 +501,33 @@ export function DraftPanel({emailId, email, onSent}: Props) {
                 </>
             )}
 
-            {body && previewGenerated && (
+            {body && previewGenerated && pdfUrl && (
                 <div className="mt-6">
-                    <h4 className="mb-3 text-sm font-semibold text-slate-900">Előnézet</h4>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                        <div
-                            className="prose prose-sm max-w-none text-sm text-slate-800"
-                            dangerouslySetInnerHTML={{__html: body}}
-                        />
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                        <h4 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h4>
+                        <a
+                            href={pdfUrl}
+                            download={`arajanlat-${draftId}.pdf`}
+                            className="text-sm font-medium text-blue-700 hover:text-blue-900"
+                        >
+                            PDF letöltése
+                        </a>
                     </div>
+                    <iframe
+                        title="Árajánlat PDF-előnézet"
+                        src={pdfUrl}
+                        className="h-[700px] w-full rounded-lg border border-slate-200 bg-slate-100"
+                    />
 
                     <div className="mt-4 flex gap-2">
                         <Button onClick={finalize} disabled={loading}>
-                            {loading ? "Küldés…" : "Válasz elküldése"}
+                            {loading ? "Gmail-piszkozat készítése…" : "Gmail-piszkozat készítése PDF-melléklettel"}
                         </Button>
                     </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                        A Gmailben egy rövid kísérőszövegű piszkozat nyílik meg a PDF-melléklettel; elküldés előtt még
+                        ellenőrizheted.
+                    </p>
                 </div>
             )}
 
