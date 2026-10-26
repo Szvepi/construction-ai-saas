@@ -138,6 +138,8 @@ The quote analysis response includes `coverageItems`, `coverageWarnings`, and `a
 
 Flyway migrations are in `backend/src/main/resources/db/migration/`. `V15__draft_quote_coverage.sql` adds nullable JSON/text columns for requested work, coverage decisions, warning acknowledgements, the analysis fingerprint, and an optimistic-lock version; old drafts remain readable.
 
+`V4__update_email_drafts_status_check.sql` uses `ADD COLUMN IF NOT EXISTS` because `unmapped_requests` was already added by V3. Databases that already applied the previous V4 contents need a one-time, operator-approved Flyway `repair` to update the V4 checksum before starting the updated application. Take a backup and verify the migration history first; do not run repair automatically during normal startup. The repair updates Flyway history metadata only and does not rerun the migration or change application data.
+
 Tables: `users`, `gmail_connections`, `emails`, `email_drafts`
 
 ### Manual verification: quote coverage and Gmail confirmation

@@ -2,19 +2,27 @@
 
 import {useEffect, useMemo, useState} from "react";
 import {ApiError, apiFetch, apiFetchBlob} from "@/lib/api";
-import type {AnalysisResponse, DraftLineItem, EmailDetail, GenerateDraftResponse} from "@/lib/types";
-import {DraftActions, type DraftAction} from "@/components/emails/DraftActions";
+import type {
+    AnalysisResponse,
+    CoverageResponse,
+    CoverageStatus,
+    CoverageWarning,
+    CoverageWorkItem,
+    DraftLineItem,
+    EmailDetail,
+    GenerateDraftResponse
+} from "@/lib/types";
+import {type DraftAction, DraftActions} from "@/components/emails/DraftActions";
 import {DraftAnalysisPanel} from "@/components/emails/DraftAnalysisPanel";
 import {QuoteLineItemsEditor} from "@/components/emails/QuoteLineItemsEditor";
 import {CoverageConfirmationDialog} from "@/components/emails/CoverageConfirmationDialog";
-import type {CoverageResponse, CoverageStatus, CoverageWarning, CoverageWorkItem} from "@/lib/types";
 
 type Props = {
     emailId: number;
     email?: EmailDetail | null;
     onSent: () => void;
     onDirtyChange?: (dirty: boolean) => void;
-    onPdfPreviewChange?: (preview: {url: string; draftId: number} | null) => void;
+    onPdfPreviewChange?: (preview: { url: string; draftId: number } | null) => void;
 };
 
 type DraftFields = {
@@ -460,15 +468,17 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     return (
         <section className="min-w-0 space-y-4 pb-64 sm:pb-48 xl:pb-32">
             {error && (
-                <div role="alert" className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                <div role="alert"
+                     className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                     <span className="mt-0.5 font-bold" aria-hidden="true">!</span>
                     <p className="min-w-0 break-words">{error}</p>
                 </div>
             )}
 
             {busyAction && (
-                <p role="status" className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
-                    {busyAction === "analyze" && "Az AI elemzi a levelet és összeállítja a javasolt tételeket…"}
+                <p role="status"
+                   className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
+                    {busyAction === "analyze" && "Mira elemzi a levelet és összeállítja a javasolt tételeket…"}
                     {busyAction === "save" && "Az ajánlat módosításainak mentése folyamatban…"}
                     {busyAction === "preview" && "A PDF-előnézet készítése folyamatban…"}
                     {busyAction === "finalize" && "A Gmail-piszkozat készítése folyamatban…"}

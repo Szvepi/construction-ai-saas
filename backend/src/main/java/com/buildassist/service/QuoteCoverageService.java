@@ -66,7 +66,7 @@ public class QuoteCoverageService {
                 String normalizedName = normalize(name);
                 if (name != null && !name.isBlank()
                         && seen.stream().noneMatch(key -> key.startsWith(normalizedName + "|"))) {
-                    addWork(works, seen, name, "Az AI nem talált hozzá egyértelmű árjegyzéki tételt.",
+                    addWork(works, seen, name, "Mira nem talált hozzá egyértelmű árjegyzéki tételt.",
                             CoverageSource.UNKNOWN, null, null, null, null, null);
                 }
             }
@@ -388,7 +388,8 @@ public class QuoteCoverageService {
         BigDecimal expected = work.quantity();
         if (work.suggestedCalculationStrategy() != null) {
             try {
-                expected = CalculationStrategy.valueOf(work.suggestedCalculationStrategy()).adjustQuantity(expected);
+                expected = CalculationStrategy.valueOf(work.suggestedCalculationStrategy())
+                        .adjustQuantity(expected, work.unit());
             } catch (IllegalArgumentException exception) {
                 return false;
             }

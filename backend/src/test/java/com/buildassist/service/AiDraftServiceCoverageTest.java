@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -111,6 +112,44 @@ class AiDraftServiceCoverageTest {
 
         verify(quotePdfService, never()).render(any(String.class));
         verify(gmailConnectionRepository, never()).findByUserId(any());
+    }
+
+    @Test
+    void zeroPricedLineBlocksFinalizeUntilUserAcknowledgesIt() {
+        List<AiDtos.DraftLineItem> lineItems = List.of(line("Sitt elszállítása", "line-1", null));
+        EmailDraft draft = draft(lineItems);
+        draft.setDraftBody("previous preview");
+        prepareDraft(draft);
+        when(emailDraftRepository.findByIdForUpdate(DRAFT_ID)).thenReturn(Optional.of(draft));
+        when(emailDraftRepository.save(any(EmailDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(templateEngine.process(any(String.class), any())).thenReturn("updated preview");
+        when(companyProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
+
+        AiDtos.CoverageResponse initialCoverage = aiDraftService.getCoverage(DRAFT_ID, USER_ID);
+        assertEquals(1, initialCoverage.warnings().size());
+        assertTrue(initialCoverage.warnings().get(0).text().contains("0 Ft"));
+        assertFalse(initialCoverage.unresolvedIssues().isEmpty());
+
+        DraftDtos.FinalizeDraftRequest finalizeRequest = new DraftDtos.FinalizeDraftRequest(
+                "Ügyfél", lineItems, null, true);
+        assertThrows(IllegalArgumentException.class,
+                () -> aiDraftService.finalizeDraft(DRAFT_ID, finalizeRequest, USER_ID));
+        verify(quotePdfService, never()).render(any(String.class));
+        verify(gmailConnectionRepository, never()).findByUserId(any());
+
+        AiDtos.CoverageWarning zeroPriceWarning = initialCoverage.warnings().get(0);
+        AiDtos.CoverageDecisionRequest acknowledgement = new AiDtos.CoverageDecisionRequest(
+                AiDtos.CoverageStatus.INCLUDED, null, saveRequest(lineItems));
+        aiDraftService.updateCoverageDecision(
+                DRAFT_ID, zeroPriceWarning.warningId(), acknowledgement, USER_ID);
+
+        AiDtos.CoverageResponse acknowledgedCoverage = aiDraftService.getCoverage(DRAFT_ID, USER_ID);
+        assertTrue(acknowledgedCoverage.warnings().get(0).acknowledged());
+        assertTrue(acknowledgedCoverage.unresolvedIssues().isEmpty());
+
+        AiDtos.CoverageResponse reloadedCoverage = aiDraftService.getCoverage(DRAFT_ID, USER_ID);
+        assertTrue(reloadedCoverage.warnings().get(0).acknowledged());
+        assertTrue(reloadedCoverage.unresolvedIssues().isEmpty());
     }
 
     @Test

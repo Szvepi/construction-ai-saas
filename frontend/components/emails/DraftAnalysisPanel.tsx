@@ -28,25 +28,25 @@ function capitalizeFirstLetter(value: string): string {
 }
 
 export function DraftAnalysisPanel({
-    emailId,
-    draftId,
-    clientName,
-    additionalNotes,
-    includeAdditionalNotes,
-    reviewWarnings,
-    coverageItems,
-    coverageWarnings,
-    lineItems,
-    busy,
-    analysisFresh,
-    onAnalyze,
-    onClientNameChange,
-    onAdditionalNotesChange,
-    onIncludeAdditionalNotesChange,
-    onAddWork,
-    onSetWorkDecision,
-    onAcknowledgeWarning,
-}: Props) {
+                                       emailId,
+                                       draftId,
+                                       clientName,
+                                       additionalNotes,
+                                       includeAdditionalNotes,
+                                       reviewWarnings,
+                                       coverageItems,
+                                       coverageWarnings,
+                                       lineItems,
+                                       busy,
+                                       analysisFresh,
+                                       onAnalyze,
+                                       onClientNameChange,
+                                       onAdditionalNotesChange,
+                                       onIncludeAdditionalNotesChange,
+                                       onAddWork,
+                                       onSetWorkDecision,
+                                       onAcknowledgeWarning,
+                                   }: Props) {
     const [selectedLineItem, setSelectedLineItem] = useState<Record<string, string>>({});
     const notesId = `additional-notes-${emailId}`;
     const includeNotesId = `include-additional-notes-${emailId}`;
@@ -65,7 +65,7 @@ export function DraftAnalysisPanel({
                         {draftId ? "Ajánlat előkészítése" : "Ajánlatkérés elemzése"}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                        Az AI a levél és az árjegyzék alapján javasol tételeket.
+                        Mira a levél és az árjegyzék alapján javasol tételeket.
                     </p>
                 </div>
                 <Button onClick={onAnalyze} disabled={busy}>
@@ -88,7 +88,7 @@ export function DraftAnalysisPanel({
                         placeholder="Például: telefonon egyeztettük a bontást is, a terület 35 m²."
                     />
                     <p className="mt-1.5 text-xs text-slate-500">
-                        Az AI az elemzéskor figyelembe veszi ezt a szöveget.
+                        Mira az elemzéskor figyelembe veszi ezt a szöveget.
                     </p>
                 </div>
 
@@ -125,16 +125,18 @@ export function DraftAnalysisPanel({
             </div>
 
             {draftId && (!analysisFresh || coverageItems.length > 0 || coverageWarnings.length > 0 || reviewWarnings.length > 0) && (
-                <section id="quote-coverage" className="mt-5 scroll-mt-24 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <section id="quote-coverage"
+                         className="mt-5 scroll-mt-24 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                             <h3 className="text-sm font-semibold text-amber-950">Ajánlat teljességének ellenőrzése</h3>
                             <p className="mt-1 text-xs text-amber-900">
-                                Az AI javaslatokat ad; a lefedettség végső megítélése a tiéd.
+                                Mira javaslatokat ad; a lefedettség végső megítélése a tiéd.
                             </p>
                         </div>
                         {!analysisFresh && (
-                            <div className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900">
+                            <div
+                                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900">
                                 A kiegészítő információk változtak. Indíts újraelemzést az ellenőrzés frissítéséhez.
                             </div>
                         )}
@@ -189,12 +191,14 @@ export function DraftAnalysisPanel({
                                                         Megerősítem a lefedettséget
                                                     </Button>
                                                 )}
-                                                <Button type="button" variant="secondary" disabled={busy} onClick={() => onAddWork(work)}>
+                                                <Button type="button" variant="secondary" disabled={busy}
+                                                        onClick={() => onAddWork(work)}>
                                                     Hozzáadás az ajánlathoz
                                                 </Button>
                                                 {lineItems.length > 0 && (
                                                     <>
-                                                        <label className="sr-only" htmlFor={`coverage-line-${work.workId}`}>
+                                                        <label className="sr-only"
+                                                               htmlFor={`coverage-line-${work.workId}`}>
                                                             Melyik ajánlati sor tartalmazza: {work.name}
                                                         </label>
                                                         <select
@@ -209,7 +213,8 @@ export function DraftAnalysisPanel({
                                                         >
                                                             <option value="">Válassz ajánlati sort</option>
                                                             {lineItems.map((item) => (
-                                                                <option key={item.lineItemId ?? item.name} value={item.lineItemId ?? ""}>
+                                                                <option key={item.lineItemId ?? item.name}
+                                                                        value={item.lineItemId ?? ""}>
                                                                     {item.name}
                                                                 </option>
                                                             ))}
@@ -266,7 +271,8 @@ export function DraftAnalysisPanel({
                             <h4 className="text-sm font-semibold text-amber-950">AI-ellenőrzési figyelmeztetések</h4>
                             <ul className="mt-2 space-y-2">
                                 {coverageWarnings.length > 0 ? coverageWarnings.map((warning) => (
-                                    <li key={warning.warningId} className="flex flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <li key={warning.warningId}
+                                        className="flex flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-start sm:justify-between">
                                         <p className="min-w-0 text-sm text-amber-950">{warning.text}</p>
                                         <Button
                                             type="button"
@@ -279,7 +285,8 @@ export function DraftAnalysisPanel({
                                         </Button>
                                     </li>
                                 )) : reviewWarnings.map((warning, index) => (
-                                    <li key={`${warning}-${index}`} className="rounded-lg bg-white px-3 py-2 text-sm text-amber-950">
+                                    <li key={`${warning}-${index}`}
+                                        className="rounded-lg bg-white px-3 py-2 text-sm text-amber-950">
                                         {warning}
                                     </li>
                                 ))}

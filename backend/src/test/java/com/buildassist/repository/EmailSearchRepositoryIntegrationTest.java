@@ -5,6 +5,8 @@ import com.buildassist.model.EmailCategory;
 import com.buildassist.model.EmailDraft;
 import com.buildassist.model.GmailConnection;
 import com.buildassist.model.User;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -18,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -34,6 +37,9 @@ class EmailSearchRepositoryIntegrationTest {
 
     @Autowired
     private EmailDraftRepository emailDraftRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private GmailConnection ownConnection;
     private OffsetDateTime sameReceivedAt;
@@ -149,6 +155,46 @@ class EmailSearchRepositoryIntegrationTest {
                 .filter(count -> count.getCategory().equals("QUOTE_REQUEST"))
                 .findFirst().orElseThrow().getCount());
         assertEquals(2L, emailRepository.countReviewEmails(ownConnection.getId(), "%example.com%"));
+    }
+
+    @Test
+    void coverageDecisionsSurviveDatabaseReloadAndRemainAttachedToTheirDraft() {
+        Email email = saveEmail(ownConnection, "Coverage persistence", "coverage@example.com",
+                sameReceivedAt, EmailCategory.QUOTE_REQUEST);
+        EmailDraft original = new EmailDraft();
+        original.setEmail(email);
+        original.setDraftBody("Saved quote");
+        original.setLineItemsJson("[{\"name\":\"Sitt elszállítása\",\"unit\":\"m3\","
+                + "\"quantity\":1,\"unitPrice\":0,\"subtotal\":0,\"lineItemId\":\"line-1\","
+                + "\"catalogItemId\":null}]");
+        original.setRequestedWorkItemsJson("[{\"workId\":\"work-1\",\"name\":\"Sitt elszállítása\","
+                + "\"explanation\":\"Kért munka.\",\"source\":\"EMAIL\",\"quantity\":null,"
+                + "\"unit\":null,\"suggestedCatalogItemId\":null,\"suggestedCatalogItemName\":null,"
+                + "\"suggestedCalculationStrategy\":null}]");
+        original.setCoverageDecisionsJson("[{\"issueId\":\"work-1\",\"status\":\"INCLUDED\","
+                + "\"lineItemId\":\"line-1\",\"lineItemFingerprint\":\"fingerprint\","
+                + "\"userConfirmed\":true}]");
+        original.setAcknowledgedWarningsJson("[\"warning-accepted-zero-price\"]");
+        original.setAnalysisFingerprint("0123456789abcdef");
+        EmailDraft savedOriginal = emailDraftRepository.saveAndFlush(original);
+        Long originalId = savedOriginal.getId();
+
+        EmailDraft reanalysis = new EmailDraft();
+        reanalysis.setEmail(email);
+        reanalysis.setDraftBody("");
+        EmailDraft savedReanalysis = emailDraftRepository.saveAndFlush(reanalysis);
+
+        entityManager.clear();
+        EmailDraft restored = emailDraftRepository.findById(originalId).orElseThrow();
+
+        assertEquals("[{\"issueId\":\"work-1\",\"status\":\"INCLUDED\",\"lineItemId\":\"line-1\","
+                + "\"lineItemFingerprint\":\"fingerprint\",\"userConfirmed\":true}]",
+                restored.getCoverageDecisionsJson());
+        assertEquals("[\"warning-accepted-zero-price\"]", restored.getAcknowledgedWarningsJson());
+        assertEquals("0123456789abcdef", restored.getAnalysisFingerprint());
+        assertEquals("Sitt elszállítása", restored.getLineItems().getFirst().name());
+        assertEquals(originalId, savedOriginal.getId());
+        assertTrue(savedReanalysis.getId() > originalId);
     }
 
     private Page<EmailRepository.SearchRow> search(String pattern, String category) {

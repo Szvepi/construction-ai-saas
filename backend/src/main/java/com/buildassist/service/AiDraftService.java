@@ -2,6 +2,7 @@ package com.buildassist.service;
 
 import com.buildassist.dto.AiDtos.AiExtractedItem;
 import com.buildassist.dto.AiDtos.AiExtractionResult;
+import com.buildassist.dto.AiDtos.AiRequestedWork;
 import com.buildassist.dto.AiDtos.DraftLineItem;
 import com.buildassist.dto.AiDtos.DraftPricingInfo;
 import com.buildassist.dto.AiDtos.RequestedWork;
@@ -115,7 +116,11 @@ public class AiDraftService {
                 extractionResult.items() != null ? extractionResult.items().size() : 0,
                 extractionResult.clientName());
 
-        DraftPricingInfo pricingInfo = calculatePricing(extractionResult, catalogItems);
+        PricingResult calculation = calculatePricing(extractionResult, catalogItems);
+        DraftPricingInfo pricingInfo = calculation.pricing();
+        List<String> reviewWarnings = new ArrayList<>(
+                extractionResult.reviewWarnings() == null ? List.of() : extractionResult.reviewWarnings());
+        reviewWarnings.addAll(calculation.warnings());
         List<RequestedWork> requestedWorks = quoteCoverageService.createRequestedWorks(extractionResult, catalogItems);
 
         EmailDraft emailDraft = new EmailDraft();
@@ -126,7 +131,7 @@ public class AiDraftService {
         emailDraft.setIncludeAdditionalNotes(true);
         emailDraft.setStatus(EmailDraft.DraftStatus.PENDING_REVIEW);
         emailDraft.setLineItemsJson(serializeJsonList(pricingInfo.items()));
-        emailDraft.setReviewWarningsJson(serializeJsonList(extractionResult.reviewWarnings()));
+        emailDraft.setReviewWarningsJson(serializeJsonList(reviewWarnings));
         emailDraft.setUnmappedRequestsJson(serializeJsonList(extractionResult.unmappedRequests()));
         emailDraft.setRequestedWorkItemsJson(quoteCoverageService.writeJson(requestedWorks));
         emailDraft.setCoverageDecisionsJson(quoteCoverageService.writeJson(
@@ -142,7 +147,7 @@ public class AiDraftService {
                 extractionResult.clientName(),
                 pricingInfo.items(),
                 extractionResult.unmappedRequests() != null ? extractionResult.unmappedRequests() : List.of(),
-                extractionResult.reviewWarnings() != null ? extractionResult.reviewWarnings() : List.of(),
+                reviewWarnings,
                 savedDraft.getAdditionalNotes(),
                 savedDraft.isIncludeAdditionalNotes(),
                 isVatRegistered(userId),
@@ -372,7 +377,7 @@ public class AiDraftService {
             draft.setCoverageDecisionsJson(quoteCoverageService.writeJson(updated));
         } else {
             List<CoverageWarning> warnings = quoteCoverageService.warningItems(
-                    draft.getReviewWarnings(), new HashSet<>());
+                    coverageWarnings(draft), new HashSet<>());
             boolean warningExists = warnings.stream().anyMatch(warning -> warning.warningId().equals(issueId));
             if (!warningExists) {
                 throw new IllegalArgumentException("Az ellenőrzési elem nem található ennél az ajánlatnál.");
@@ -423,8 +428,21 @@ public class AiDraftService {
                 quoteCoverageService.analysisFingerprint(
                         email == null ? null : email.getBodyText(), draft.getAdditionalNotes()));
         return quoteCoverageService.response(
-                works, decisions, draft.getLineItems(), draft.getReviewWarnings(),
+                works, decisions, draft.getLineItems(), coverageWarnings(draft),
                 acknowledged, analysisFresh, quoteCoverageService.quoteFingerprint(draft));
+    }
+
+    private List<String> coverageWarnings(EmailDraft draft) {
+        List<String> warnings = new ArrayList<>(draft.getReviewWarnings());
+        List<DraftLineItem> lineItems = draft.getLineItems();
+        for (int index = 0; index < lineItems.size(); index++) {
+            DraftLineItem item = lineItems.get(index);
+            if (item.unitPrice() != null && item.unitPrice().signum() == 0) {
+                warnings.add("Az ajánlat " + (index + 1) + ". sora („" + item.name()
+                        + "”) 0 Ft-os egységárú. Ellenőrizd, hogy ez tudatos-e.");
+            }
+        }
+        return List.copyOf(warnings);
     }
 
     private List<RequestedWork> requestedWorksFor(EmailDraft draft) {
@@ -541,13 +559,14 @@ public class AiDraftService {
         return sb.toString();
     }
 
-    private DraftPricingInfo calculatePricing(AiExtractionResult extraction, List<CatalogItem> catalogItems) {
+    PricingResult calculatePricing(AiExtractionResult extraction, List<CatalogItem> catalogItems) {
         Map<Long, CatalogItem> catalogMap = new HashMap<>();
         for (CatalogItem item : catalogItems) {
             catalogMap.put(item.getId(), item);
         }
 
         List<DraftLineItem> lineItems = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         BigDecimal grandTotal = BigDecimal.ZERO;
 
         if (extraction.items() != null) {
@@ -556,7 +575,15 @@ public class AiDraftService {
 
                 if (catalogItem != null && extractedItem.quantity() != null) {
                     BigDecimal baseQuantity = extractedItem.quantity();
-                    BigDecimal adjustedQuantity = adjustQuantity(baseQuantity, catalogItem.getCalculationStrategy());
+                    String inputUnit = requestedUnitFor(extraction, extractedItem);
+                    CalculationStrategy strategy = catalogItem.getCalculationStrategy();
+                    if (strategy != null && !strategy.supportsUnits(inputUnit, catalogItem.getUnit())) {
+                        warnings.add("A(z) „" + catalogItem.getName()
+                                + "” mennyiségének mértékegysége nem ismert vagy nem kompatibilis; "
+                                + "automatikus átszámítás nem történt.");
+                    }
+                    BigDecimal adjustedQuantity = adjustQuantity(
+                            baseQuantity, strategy, inputUnit, catalogItem.getUnit());
                     BigDecimal unitPrice = catalogItem.getUnitPrice();
                     BigDecimal subtotal = unitPrice.multiply(adjustedQuantity).setScale(0, RoundingMode.HALF_UP);
 
@@ -575,11 +602,31 @@ public class AiDraftService {
             }
         }
 
-        return new DraftPricingInfo(lineItems, grandTotal);
+        return new PricingResult(new DraftPricingInfo(lineItems, grandTotal), List.copyOf(warnings));
     }
 
-    private BigDecimal adjustQuantity(BigDecimal baseQuantity, CalculationStrategy strategy) {
-        return strategy == null ? baseQuantity : strategy.adjustQuantity(baseQuantity);
+    private String requestedUnitFor(AiExtractionResult extraction, AiExtractedItem extractedItem) {
+        if (extraction.requestedWorks() == null) {
+            return null;
+        }
+        List<String> matchingUnits = extraction.requestedWorks().stream()
+                .filter(work -> work != null
+                        && Objects.equals(work.catalogItemId(), extractedItem.catalogItemId())
+                        && work.quantity() != null
+                        && work.quantity().compareTo(extractedItem.quantity()) == 0
+                        && work.unit() != null && !work.unit().isBlank())
+                .map(AiRequestedWork::unit)
+                .distinct()
+                .toList();
+        return matchingUnits.size() == 1 ? matchingUnits.get(0) : null;
+    }
+
+    private BigDecimal adjustQuantity(
+            BigDecimal baseQuantity, CalculationStrategy strategy, String inputUnit, String outputUnit) {
+        return strategy == null ? baseQuantity : strategy.adjustQuantity(baseQuantity, inputUnit, outputUnit);
+    }
+
+    record PricingResult(DraftPricingInfo pricing, List<String> warnings) {
     }
 
     private String generateDraftHtml(

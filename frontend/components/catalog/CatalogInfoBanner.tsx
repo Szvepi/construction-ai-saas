@@ -90,8 +90,10 @@ export function CatalogInfoBanner() {
             </p>
             <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-700">
                 <li>Vedd fel a saját munkafázisaidat és alapértelmezett áraidat.</li>
-                <li>Rendelj hozzájuk AI számítási szabályt (pl. vágási veszteség burkolásnál, vagy területről köbméter számítás).</li>
-                <li>Az AI ezen szabályok alapján fogja kiszámolni a pontos tételeket az ügyfelek leveleiből.</li>
+                <li>Rendelj hozzájuk AI számítási szabályt (pl. vágási veszteség burkolásnál, vagy területről köbméter
+                    számítás).
+                </li>
+                <li>Mira ezen szabályok alapján fogja kiszámolni a pontos tételeket az ügyfelek leveleiből.</li>
             </ol>
         </section>
     );

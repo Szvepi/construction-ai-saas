@@ -1,8 +1,8 @@
 -- Új oszlopok felvétele
 ALTER TABLE email_drafts
-    ADD COLUMN line_items       TEXT,
-    ADD COLUMN review_warnings  TEXT,
-    ADD COLUMN unmapped_requests TEXT;
+    ADD COLUMN IF NOT EXISTS line_items       TEXT,
+    ADD COLUMN IF NOT EXISTS review_warnings  TEXT,
+    ADD COLUMN IF NOT EXISTS unmapped_requests TEXT;
 
 -- 1. Régi CHECK constraint eldobása
 ALTER TABLE email_drafts

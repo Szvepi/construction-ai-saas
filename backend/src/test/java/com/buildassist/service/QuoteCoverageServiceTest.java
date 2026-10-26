@@ -51,6 +51,17 @@ class QuoteCoverageServiceTest {
     }
 
     @Test
+    void legacyDraftsStillSurfaceUnmappedRequestsForReview() {
+        List<RequestedWork> legacyWorks = coverageService.legacyRequestedWorks(
+                List.of("Sitt elszállítása"), 81L);
+
+        assertEquals(CoverageStatus.NEEDS_REVIEW,
+                coverageService.evaluate(legacyWorks, List.of(), List.of()).get(0).status());
+        assertEquals(legacyWorks.get(0).workId(),
+                coverageService.legacyRequestedWorks(List.of("Sitt elszállítása"), 81L).get(0).workId());
+    }
+
+    @Test
     void doesNotTreatGenericCatalogRowsAsProofOfCoverage() {
         RequestedWork request = new RequestedWork("work-1", "Konténer rendelése", "Kért munka.",
                 CoverageSource.EMAIL, null, null, 12L, "Általános kivitelezési munka", "DIRECT");
