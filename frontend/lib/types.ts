@@ -32,6 +32,10 @@ export type GenerateDraftResponse = {
   additionalNotes?: string | null;
   includeAdditionalNotes: boolean;
   vatRegistered: boolean;
+  coverageItems?: CoverageWorkItem[];
+  coverageWarnings?: CoverageWarning[];
+  analysisFresh?: boolean;
+  gmailDraftCreated?: boolean;
 };
 
 export type DraftLineItem = {
@@ -40,6 +44,8 @@ export type DraftLineItem = {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  lineItemId?: string;
+  catalogItemId?: number | null;
 };
 
 export type AnalysisResponse = {
@@ -51,6 +57,37 @@ export type AnalysisResponse = {
   additionalNotes: string | null;
   includeAdditionalNotes: boolean;
   vatRegistered: boolean;
+  coverageItems: CoverageWorkItem[];
+  coverageWarnings: CoverageWarning[];
+  analysisFresh: boolean;
+};
+
+export type CoverageStatus = "INCLUDED" | "NEEDS_REVIEW" | "MISSING" | "EXCLUDED";
+
+export type CoverageWorkItem = {
+  workId: string;
+  name: string;
+  explanation: string;
+  source: "EMAIL" | "ADDITIONAL_INFO" | "UNKNOWN";
+  quantity: number | null;
+  unit: string | null;
+  status: CoverageStatus;
+  linkedLineItemId: string | null;
+  userConfirmed: boolean;
+};
+
+export type CoverageWarning = {
+  warningId: string;
+  text: string;
+  acknowledged: boolean;
+};
+
+export type CoverageResponse = {
+  workItems: CoverageWorkItem[];
+  warnings: CoverageWarning[];
+  analysisFresh: boolean;
+  unresolvedIssues: string[];
+  quoteFingerprint: string;
 };
 
 export type FinalizeDraftRequest = {
@@ -58,6 +95,8 @@ export type FinalizeDraftRequest = {
   lineItems: DraftLineItem[];
   additionalNotes?: string | null;
   includeAdditionalNotes?: boolean;
+  confirmIncomplete?: boolean;
+  confirmedFingerprint?: string | null;
 };
 
 export type SaveDraftRequest = {

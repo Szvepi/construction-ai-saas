@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -53,7 +54,8 @@ class EmailServiceSearchTest {
                 emailDraftRepository,
                 gmailConnectionRepository,
                 gmailService,
-                companyProfileRepository);
+                companyProfileRepository,
+                new QuoteCoverageService(new ObjectMapper()));
     }
 
     @Test

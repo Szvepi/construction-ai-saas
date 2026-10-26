@@ -10,6 +10,11 @@ import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {DraftPanel} from "@/components/emails/DraftPanel";
 import {EmailSourcePanel} from "@/components/emails/EmailSourcePanel";
 
+type PdfPreview = {
+    url: string;
+    draftId: number;
+};
+
 export default function EmailDetailPage() {
     const params = useParams();
     const router = useRouter();
@@ -18,6 +23,7 @@ export default function EmailDetailPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [pdfPreview, setPdfPreview] = useState<PdfPreview | null>(null);
 
     const loadEmail = useCallback(async () => {
         try {
@@ -127,24 +133,45 @@ export default function EmailDetailPage() {
 
                         <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.65fr)]">
                             <EmailSourcePanel email={email}/>
-                            <div className="min-w-0 space-y-4">
-                                {email.replied ? (
-                                    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-                                        <h2 className="font-semibold text-emerald-900">A levél megválaszolva</h2>
-                                        <p className="mt-1 text-sm text-emerald-800">
-                                            Ehhez a megkereséshez már készült válasz.
-                                        </p>
-                                    </section>
-                                ) : (
-                                    <DraftPanel
-                                        emailId={email.id}
-                                        email={email}
-                                        onSent={() => loadEmail()}
-                                        onDirtyChange={setHasUnsavedChanges}
-                                    />
-                                )}
-                            </div>
+                            {email.replied ? (
+                                <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                                    <h2 className="font-semibold text-emerald-900">A levél megválaszolva</h2>
+                                    <p className="mt-1 text-sm text-emerald-800">
+                                        Ehhez a megkereséshez már készült válasz.
+                                    </p>
+                                </section>
+                            ) : (
+                                <DraftPanel
+                                    emailId={email.id}
+                                    email={email}
+                                    onSent={() => loadEmail()}
+                                    onDirtyChange={setHasUnsavedChanges}
+                                    onPdfPreviewChange={setPdfPreview}
+                                />
+                            )}
                         </div>
+                        {pdfPreview && (
+                            <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+                                    <div>
+                                        <h2 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h2>
+                                        <p className="mt-0.5 text-xs text-slate-500">A megnyitás és letöltés a jelenlegi PDF alapján történik.</p>
+                                    </div>
+                                    <a
+                                        href={pdfPreview.url}
+                                        download={`arajanlat-${pdfPreview.draftId}.pdf`}
+                                        className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                    >
+                                        PDF letöltése
+                                    </a>
+                                </div>
+                                <iframe
+                                    title="Árajánlat PDF-előnézete"
+                                    src={pdfPreview.url}
+                                    className="h-[min(75vh,760px)] min-h-[420px] w-full bg-slate-100"
+                                />
+                            </section>
+                        )}
                     </>
                 )}
             </main>

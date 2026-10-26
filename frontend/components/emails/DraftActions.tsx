@@ -8,6 +8,7 @@ type Props = {
     lineItemCount: number;
     busyAction: DraftAction;
     isDirty: boolean;
+    gmailDraftCreated: boolean;
     saveSuccess: string | null;
     total: number;
     net: number;
@@ -23,6 +24,7 @@ export function DraftActions({
     lineItemCount,
     busyAction,
     isDirty,
+    gmailDraftCreated,
     saveSuccess,
     total,
     net,
@@ -35,7 +37,7 @@ export function DraftActions({
     const busy = busyAction !== null;
 
     return (
-        <div className="sticky bottom-3 z-10 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-lg shadow-slate-900/[0.06] backdrop-blur sm:p-5">
+        <div className="sticky bottom-3 z-10 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/[0.06] sm:p-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0">
                     {isDirty ? (
@@ -68,10 +70,12 @@ export function DraftActions({
                         <Button
                             variant="secondary"
                             onClick={onCreateGmailDraft}
-                            disabled={!draftId || busy}
+                            disabled={!draftId || busy || gmailDraftCreated}
                             className="w-full sm:w-auto"
                         >
-                            {busyAction === "finalize" ? "Gmail-piszkozat készül…" : "Gmail-piszkozat készítése"}
+                            {busyAction === "finalize"
+                                ? "Gmail-piszkozat készül…"
+                                : gmailDraftCreated ? "Gmail-piszkozat már elkészült" : "Gmail-piszkozat készítése"}
                         </Button>
                     </div>
                 </div>

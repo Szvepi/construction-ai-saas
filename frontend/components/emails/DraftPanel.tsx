@@ -6,12 +6,15 @@ import type {AnalysisResponse, DraftLineItem, EmailDetail, GenerateDraftResponse
 import {DraftActions, type DraftAction} from "@/components/emails/DraftActions";
 import {DraftAnalysisPanel} from "@/components/emails/DraftAnalysisPanel";
 import {QuoteLineItemsEditor} from "@/components/emails/QuoteLineItemsEditor";
+import {CoverageConfirmationDialog} from "@/components/emails/CoverageConfirmationDialog";
+import type {CoverageResponse, CoverageStatus, CoverageWarning, CoverageWorkItem} from "@/lib/types";
 
 type Props = {
     emailId: number;
     email?: EmailDetail | null;
     onSent: () => void;
     onDirtyChange?: (dirty: boolean) => void;
+    onPdfPreviewChange?: (preview: {url: string; draftId: number} | null) => void;
 };
 
 type DraftFields = {
@@ -28,6 +31,7 @@ function makeRow(name = "", unit = "m2", quantity = 1, unitPrice = 0): DraftLine
         quantity,
         unitPrice,
         subtotal: Math.round(quantity * unitPrice),
+        lineItemId: crypto.randomUUID(),
     };
 }
 
@@ -39,17 +43,23 @@ function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLin
     return (items ?? []).map((item) => ({
         ...item,
         subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
+        lineItemId: item.lineItemId || crypto.randomUUID(),
     }));
 }
 
-export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
+export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewChange}: Props) {
     const [draftId, setDraftId] = useState<number | null>(null);
     const [clientName, setClientName] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
     const [includeAdditionalNotes, setIncludeAdditionalNotes] = useState(true);
     const [vatRegistered, setVatRegistered] = useState(false);
     const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
-    const [unmapped, setUnmapped] = useState<string[]>([]);
+    const [coverageItems, setCoverageItems] = useState<CoverageWorkItem[]>([]);
+    const [coverageWarnings, setCoverageWarnings] = useState<CoverageWarning[]>([]);
+    const [analysisFresh, setAnalysisFresh] = useState(true);
+    const [gmailDraftCreated, setGmailDraftCreated] = useState(false);
+    const [confirmationIssues, setConfirmationIssues] = useState<string[] | null>(null);
+    const [confirmationFingerprint, setConfirmationFingerprint] = useState<string | null>(null);
     const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
     const [body, setBody] = useState("");
     const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -91,8 +101,11 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
             setAdditionalNotes(initialFields.additionalNotes);
             setIncludeAdditionalNotes(initialFields.includeAdditionalNotes);
             setVatRegistered(currentEmail.draftEmail.vatRegistered ?? false);
-            setUnmapped(currentEmail.draftEmail.unmappedRequests ?? []);
             setReviewWarnings(currentEmail.draftEmail.reviewWarnings ?? []);
+            setCoverageItems(currentEmail.draftEmail.coverageItems ?? []);
+            setCoverageWarnings(currentEmail.draftEmail.coverageWarnings ?? []);
+            setAnalysisFresh(currentEmail.draftEmail.analysisFresh ?? true);
+            setGmailDraftCreated(currentEmail.draftEmail.gmailDraftCreated ?? false);
             setLineItems(items);
             setSavedSnapshot(snapshot(initialFields));
             if (currentEmail.draftEmail.draftBody) {
@@ -127,7 +140,10 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
             setIncludeAdditionalNotes(emptyFields.includeAdditionalNotes);
             setVatRegistered(false);
             setReviewWarnings([]);
-            setUnmapped([]);
+            setCoverageItems([]);
+            setCoverageWarnings([]);
+            setAnalysisFresh(true);
+            setGmailDraftCreated(false);
             setLineItems([]);
             setSavedSnapshot(snapshot(emptyFields));
         }
@@ -141,6 +157,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
     useEffect(() => () => {
         if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     }, [pdfUrl]);
+
+    useEffect(() => {
+        onPdfPreviewChange?.(
+            body && previewGenerated && pdfUrl && draftId
+                ? {url: pdfUrl, draftId}
+                : null,
+        );
+    }, [body, draftId, onPdfPreviewChange, pdfUrl, previewGenerated]);
 
     const total = useMemo(
         () => lineItems.reduce((sum, item) => sum + item.subtotal, 0),
@@ -179,7 +203,10 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
             setAdditionalNotes(fields.additionalNotes);
             setVatRegistered(data.vatRegistered ?? false);
             setReviewWarnings(data.reviewWarnings ?? []);
-            setUnmapped(data.unmappedRequests ?? []);
+            setCoverageItems(data.coverageItems ?? []);
+            setCoverageWarnings(data.coverageWarnings ?? []);
+            setAnalysisFresh(data.analysisFresh);
+            setGmailDraftCreated(false);
             setLineItems(items);
             setBody("");
             setPdfUrl(null);
@@ -192,12 +219,12 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
         }
     }
 
-    function buildPayload() {
+    function buildPayload(items = lineItems) {
         return {
             clientName: clientName || email?.fromAddress || "Érdeklődő",
             additionalNotes,
             includeAdditionalNotes,
-            lineItems: lineItems.map((item) => ({
+            lineItems: items.map((item) => ({
                 ...item,
                 quantity: Number(item.quantity || 0),
                 unitPrice: Number(item.unitPrice || 0),
@@ -218,11 +245,15 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
         setIncludeAdditionalNotes(fields.includeAdditionalNotes);
         setVatRegistered(data.vatRegistered ?? false);
         setLineItems(fields.lineItems);
+        setCoverageItems(data.coverageItems ?? []);
+        setCoverageWarnings(data.coverageWarnings ?? []);
+        setAnalysisFresh(data.analysisFresh ?? true);
+        setGmailDraftCreated(data.gmailDraftCreated ?? false);
         setSavedSnapshot(snapshot(fields));
     }
 
-    async function save() {
-        if (!draftId) return;
+    async function save(): Promise<GenerateDraftResponse | null> {
+        if (!draftId) return null;
         const payload = buildPayload();
         setBusyAction("save");
         setError(null);
@@ -235,8 +266,10 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
             });
             applySavedDraft(data);
             setSaveSuccess("A módosítások mentésre kerültek.");
+            return data;
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "A mentés sikertelen");
+            return null;
         } finally {
             setBusyAction(null);
         }
@@ -244,6 +277,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
 
     function updateLineItem(index: number, field: keyof DraftLineItem, value: string | number) {
         setPreviewGenerated(false);
+        const currentItem = lineItems[index];
+        if (currentItem && ["name", "unit", "quantity"].includes(field)
+            && String(currentItem[field] ?? "") !== String(value)) {
+            setCoverageItems((current) => current.map((work) =>
+                work.status === "INCLUDED" && work.linkedLineItemId === currentItem.lineItemId
+                    ? {...work, status: "NEEDS_REVIEW", linkedLineItemId: null, userConfirmed: false}
+                    : work));
+        }
         setLineItems((current) => {
             const next = [...current];
             const row = {...next[index]};
@@ -271,11 +312,54 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
 
     function removeLineItem(index: number) {
         setPreviewGenerated(false);
+        const removed = lineItems[index];
+        if (removed) {
+            setCoverageItems((current) => current.map((work) =>
+                work.status === "INCLUDED" && work.linkedLineItemId === removed.lineItemId
+                    ? {...work, status: "NEEDS_REVIEW", linkedLineItemId: null, userConfirmed: false}
+                    : work));
+        }
         setLineItems((current) => current.filter((_, i) => i !== index));
     }
 
-    async function preview() {
-        if (!draftId) return;
+    async function saveCoverageDecision(
+        issueId: string,
+        status: CoverageStatus,
+        lineItemId?: string,
+        items = lineItems,
+    ) {
+        if (!draftId || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        setSaveSuccess(null);
+        setPreviewGenerated(false);
+        try {
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/coverage/${encodeURIComponent(issueId)}`, {
+                method: "PUT",
+                body: {
+                    status,
+                    lineItemId: lineItemId ?? null,
+                    draft: buildPayload(items),
+                },
+            });
+            applySavedDraft(data);
+            setSaveSuccess("Az ellenőrzési döntés mentésre került.");
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Az ellenőrzési döntés mentése sikertelen");
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    function addCoverageWork(work: CoverageWorkItem) {
+        const item = makeRow(work.name, work.unit ?? "", work.quantity ?? 0, 0);
+        const items = [...lineItems, item];
+        setLineItems(items);
+        void saveCoverageDecision(work.workId, "INCLUDED", item.lineItemId, items);
+    }
+
+    async function preview(): Promise<boolean> {
+        if (!draftId) return false;
         const payload = buildPayload();
         setBusyAction("preview");
         setError(null);
@@ -291,18 +375,20 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
             const pdf = await apiFetchBlob(`/api/drafts/${draftId}/pdf`);
             setPdfUrl(URL.createObjectURL(pdf));
             setPreviewGenerated(true);
+            return true;
         } catch (err) {
             setError(err instanceof ApiError ? err.message : "Az előnézet generálása sikertelen");
+            return false;
         } finally {
             setBusyAction(null);
         }
     }
 
-    async function createGmailDraft() {
+    async function finalizeGmailDraft(
+        confirmIncomplete: boolean,
+        expectedFingerprint = confirmationFingerprint,
+    ) {
         if (!draftId) return;
-        if (isDirty && !window.confirm("A Gmail-piszkozat készítése elmenti az aktuális ajánlatot. Folytatod?")) {
-            return;
-        }
         const payload = buildPayload();
         setBusyAction("finalize");
         setError(null);
@@ -311,9 +397,15 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
         try {
             const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/finalize`, {
                 method: "POST",
-                body: payload,
+                body: {
+                    ...payload,
+                    confirmIncomplete,
+                    confirmedFingerprint: expectedFingerprint,
+                },
             });
             applySavedDraft(data);
+            setConfirmationIssues(null);
+            setConfirmationFingerprint(null);
             setSaveSuccess("A Gmail-piszkozat elkészült. Ellenőrizd a Gmailben, mielőtt elküldöd.");
             onSent();
         } catch (err) {
@@ -321,6 +413,38 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
         } finally {
             setBusyAction(null);
         }
+    }
+
+    async function createGmailDraft() {
+        if (!draftId || busyAction !== null) return;
+        if (isDirty && !window.confirm("A Gmail-piszkozat készítése elmenti az aktuális ajánlatot. Folytatod?")) {
+            return;
+        }
+        const saved = await save();
+        if (!saved) return;
+        if (!body && !(await preview())) return;
+        setBusyAction("save");
+        setError(null);
+        let shouldFinalize = false;
+        let currentQuoteFingerprint: string | null = null;
+        try {
+            const coverage = await apiFetch<CoverageResponse>(`/api/drafts/${draftId}/coverage`);
+            currentQuoteFingerprint = coverage.quoteFingerprint;
+            setCoverageItems(coverage.workItems);
+            setCoverageWarnings(coverage.warnings);
+            setAnalysisFresh(coverage.analysisFresh);
+            setConfirmationFingerprint(coverage.quoteFingerprint);
+            if (coverage.unresolvedIssues.length > 0) {
+                setConfirmationIssues(coverage.unresolvedIssues);
+            } else {
+                shouldFinalize = true;
+            }
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Az ajánlat ellenőrzése sikertelen");
+        } finally {
+            setBusyAction(null);
+        }
+        if (shouldFinalize) await finalizeGmailDraft(false, currentQuoteFingerprint);
     }
 
     if (!isQuoteRequest) {
@@ -334,7 +458,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
     }
 
     return (
-        <section className="min-w-0 space-y-4">
+        <section className="min-w-0 space-y-4 pb-64 sm:pb-48 xl:pb-32">
             {error && (
                 <div role="alert" className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                     <span className="mt-0.5 font-bold" aria-hidden="true">!</span>
@@ -358,7 +482,10 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
                 additionalNotes={additionalNotes}
                 includeAdditionalNotes={includeAdditionalNotes}
                 reviewWarnings={reviewWarnings}
-                unmapped={unmapped}
+                coverageItems={coverageItems}
+                coverageWarnings={coverageWarnings}
+                lineItems={lineItems}
+                analysisFresh={analysisFresh}
                 busy={busyAction !== null}
                 onAnalyze={analyze}
                 onClientNameChange={(value) => {
@@ -367,13 +494,23 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
                 }}
                 onAdditionalNotesChange={(value) => {
                     setPreviewGenerated(false);
+                    if (value !== additionalNotes) setAnalysisFresh(false);
                     setAdditionalNotes(value);
                 }}
                 onIncludeAdditionalNotesChange={(value) => {
                     setPreviewGenerated(false);
                     setIncludeAdditionalNotes(value);
                 }}
-                onAddUnmapped={(value) => addCustomRow(value, "db")}
+                onAddWork={addCoverageWork}
+                onSetWorkDecision={(workId, status, lineItemId) => {
+                    void saveCoverageDecision(workId, status, lineItemId);
+                }}
+                onAcknowledgeWarning={(warningId, acknowledged) => {
+                    void saveCoverageDecision(
+                        warningId,
+                        acknowledged ? "INCLUDED" : "NEEDS_REVIEW",
+                    );
+                }}
             />
 
             {draftId && (
@@ -391,6 +528,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
                         lineItemCount={lineItems.length}
                         busyAction={busyAction}
                         isDirty={isDirty}
+                        gmailDraftCreated={gmailDraftCreated}
                         saveSuccess={saveSuccess}
                         total={total}
                         net={vatTotals.net}
@@ -403,28 +541,22 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange}: Props) {
                 </>
             )}
 
-            {body && previewGenerated && pdfUrl && (
-                <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-                        <div>
-                            <h2 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h2>
-                            <p className="mt-0.5 text-xs text-slate-500">A megnyitás és letöltés a jelenlegi PDF alapján történik.</p>
-                        </div>
-                        <a
-                            href={pdfUrl}
-                            download={`arajanlat-${draftId}.pdf`}
-                            className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            PDF letöltése
-                        </a>
-                    </div>
-                    <iframe
-                        title="Árajánlat PDF-előnézete"
-                        src={pdfUrl}
-                        className="h-[min(75vh,760px)] min-h-[420px] w-full bg-slate-100"
-                    />
-                </section>
+            {confirmationIssues && (
+                <CoverageConfirmationDialog
+                    unresolvedIssues={confirmationIssues}
+                    busy={busyAction === "finalize"}
+                    onReturn={() => {
+                        setConfirmationIssues(null);
+                        setConfirmationFingerprint(null);
+                        document.getElementById("quote-coverage")?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                        });
+                    }}
+                    onContinue={() => void finalizeGmailDraft(true)}
+                />
             )}
+
         </section>
     );
 }

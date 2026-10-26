@@ -52,7 +52,7 @@ export function EmailSourcePanel({email}: Props) {
             <div className="p-5 sm:p-6">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Levél tartalma</h2>
                 <div className="mt-3 max-h-[min(68vh,800px)] overflow-y-auto overscroll-contain">
-                    <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                    <pre className="max-w-full whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
                         {email.bodyText || "A levél nem tartalmaz megjeleníthető szöveget."}
                     </pre>
                 </div>

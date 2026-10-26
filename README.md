@@ -125,14 +125,29 @@ Caddy serves the frontend on `/` and proxies `/api/*` to the backend.
 | POST   | `/api/emails/{id}/drafts/generate`       | Claude draft             |
 | PUT    | `/api/emails/{id}/drafts/{draftId}`      | Save draft               |
 | POST   | `/api/emails/{id}/drafts/{draftId}/send` | Send via Gmail           |
+| POST   | `/api/drafts/analyze/{emailId}`          | AI quote analysis and requested-work coverage |
+| POST   | `/api/drafts/{draftId}/save`             | Save quote lines and notes |
+| GET    | `/api/drafts/{draftId}/coverage`         | Read current quote coverage and unresolved checks |
+| PUT    | `/api/drafts/{draftId}/coverage/{issueId}` | Persist a coverage decision and current quote |
+| POST   | `/api/drafts/{draftId}/finalize`         | Create Gmail draft; unresolved checks require `confirmIncomplete: true` |
+| POST   | `/api/drafts/{draftId}/preview`          | Save quote and render its PDF preview |
 
-All protected routes except auth and Gmail callback return `501`/placeholder until implemented.
+The quote analysis response includes `coverageItems`, `coverageWarnings`, and `analysisFresh`. Coverage decisions are stored per draft and recognized work. A `coverageItems` entry can be marked `INCLUDED`, `NEEDS_REVIEW`, `MISSING`, or `EXCLUDED`; an included user decision is linked to a line item ID and its scope fingerprint. The finalize endpoint recalculates unresolved checks from the saved draft before contacting Gmail and does not create a draft unless the request explicitly confirms unresolved checks.
 
 ## Database
 
-Flyway migration: `backend/src/main/resources/db/migration/V1__init_schema.sql`
+Flyway migrations are in `backend/src/main/resources/db/migration/`. `V15__draft_quote_coverage.sql` adds nullable JSON/text columns for requested work, coverage decisions, warning acknowledgements, the analysis fingerprint, and an optimistic-lock version; old drafts remain readable.
 
 Tables: `users`, `gmail_connections`, `emails`, `email_drafts`
+
+### Manual verification: quote coverage and Gmail confirmation
+
+1. Analyze a quote-request email for 45 m² of paving and add a separate 15 m² sidewalk in the supplementary notes. With the `WASTE_PERCENTAGE_10` strategy, a 49.5 m² paving line should still cover the 45 m² request, while the separate 15 m² sidewalk remains under review; confirm that each work shows its source.
+2. Add a missing work from the coverage panel. Confirm its name is prefilled, any quantity is shown only when the analysis returned one, and its unit price starts at zero for manual entry.
+3. Select an existing quote line for “Másik tétel tartalmazza,” exclude a work, and leave another for review. Save, reload the email, and confirm that all three decisions persist.
+4. Change or delete a linked line and confirm that its prior coverage decision becomes review-required. Change supplementary notes without reanalysis and confirm that the analysis is marked stale; reanalysis should replace the work list with fresh IDs and clear old decisions for that new analysis.
+5. Save and preview while checks remain unresolved. Start Gmail draft creation and verify the accessible confirmation dialog lists the current unresolved checks. Return to the quote and confirm edits are preserved; confirm creation and verify only a Gmail draft (not a sent email) is created.
+6. Repeat the create action after success and verify the UI prevents another request. Verify an API finalize call without `confirmIncomplete: true` is rejected when any check remains unresolved.
 
 Activate paid users manually: `UPDATE users SET is_active = true WHERE email = '...';`
 

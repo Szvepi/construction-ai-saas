@@ -24,6 +24,10 @@ public class EmailDraft {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    @Column(name = "draft_version", nullable = false)
+    private long version;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "email_id", nullable = false)
     private Email email;
@@ -58,6 +62,18 @@ public class EmailDraft {
 
     @Column(name = "unmapped_requests", columnDefinition = "TEXT")
     private String unmappedRequestsJson;
+
+    @Column(name = "requested_work_items", columnDefinition = "TEXT")
+    private String requestedWorkItemsJson;
+
+    @Column(name = "coverage_decisions", columnDefinition = "TEXT")
+    private String coverageDecisionsJson;
+
+    @Column(name = "acknowledged_warnings", columnDefinition = "TEXT")
+    private String acknowledgedWarningsJson;
+
+    @Column(name = "analysis_fingerprint", length = 64)
+    private String analysisFingerprint;
 
     public List<AiDtos.DraftLineItem> getLineItems() {
         if (this.lineItemsJson == null || this.lineItemsJson.isBlank()) {

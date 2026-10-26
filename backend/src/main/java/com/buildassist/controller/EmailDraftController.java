@@ -1,6 +1,7 @@
 package com.buildassist.controller;
 
 import com.buildassist.dto.DraftDtos;
+import com.buildassist.dto.AiDtos;
 import com.buildassist.security.SecurityUtils;
 import com.buildassist.service.AiDraftService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -39,6 +40,21 @@ public class EmailDraftController {
             @Valid @RequestBody DraftDtos.SaveDraftRequest request) {
         DraftDtos.GenerateDraftResponse response = aiDraftService.saveDraft(draftId, request, SecurityUtils.currentUserId());
         return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{draftId}/coverage/{issueId}")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> updateCoverageDecision(
+            @PathVariable Long draftId,
+            @PathVariable String issueId,
+            @Valid @RequestBody com.buildassist.dto.AiDtos.CoverageDecisionRequest request) {
+        DraftDtos.GenerateDraftResponse response = aiDraftService.updateCoverageDecision(
+                draftId, issueId, request, SecurityUtils.currentUserId());
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{draftId}/coverage")
+    public ResponseEntity<AiDtos.CoverageResponse> getCoverage(@PathVariable Long draftId) {
+        return ResponseEntity.ok(aiDraftService.getCoverage(draftId, SecurityUtils.currentUserId()));
     }
 
     @PostMapping("/{draftId}/preview")

@@ -12,49 +12,85 @@ public final class DraftDtos {
     public record GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                         List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
                                         String clientName, String additionalNotes, boolean includeAdditionalNotes,
-                                        boolean vatRegistered) {
+                                        boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
+                                        List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
+                                        boolean gmailDraftCreated) {
         public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                      List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
                                      String clientName) {
-            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, null, true, false);
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, null, true, false,
+                    List.of(), List.of(), true, false);
         }
 
         public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                      List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
                                      String clientName, String additionalNotes) {
-            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, additionalNotes, true, false);
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, additionalNotes, true, false,
+                    List.of(), List.of(), true, false);
         }
 
         public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                      List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
                                      String clientName, String additionalNotes, boolean includeAdditionalNotes) {
             this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, additionalNotes,
-                    includeAdditionalNotes, false);
+                    includeAdditionalNotes, false, List.of(), List.of(), true, false);
         }
 
         public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                     List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems) {
-            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, null, null, true, false);
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, null, null, true, false,
+                    List.of(), List.of(), true, false);
+        }
+
+        public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
+                                     List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
+                                     String clientName, String additionalNotes, boolean includeAdditionalNotes,
+                                     boolean vatRegistered) {
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, additionalNotes,
+                    includeAdditionalNotes, vatRegistered, List.of(), List.of(), true, false);
+        }
+
+        public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
+                                     List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
+                                     String clientName, String additionalNotes, boolean includeAdditionalNotes,
+                                     boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
+                                     List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh) {
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName, additionalNotes,
+                    includeAdditionalNotes, vatRegistered, coverageItems, coverageWarnings, analysisFresh, false);
         }
     }
 
     public record AnalysisResponse(Long draftId, String clientName, List<AiDtos.DraftLineItem> lineItems,
                                    List<String> unmappedRequests, List<String> reviewWarnings,
-                                   String additionalNotes, boolean includeAdditionalNotes, boolean vatRegistered) {
+                                   String additionalNotes, boolean includeAdditionalNotes, boolean vatRegistered,
+                                   List<AiDtos.CoverageWorkItem> coverageItems,
+                                   List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh) {
     }
 
     public record AnalyzeRequest(String additionalNotes) {
     }
 
     public record FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
-                                       String additionalNotes, Boolean includeAdditionalNotes) {
+                                       String additionalNotes, Boolean includeAdditionalNotes,
+                                       Boolean confirmIncomplete, String confirmedFingerprint) {
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems) {
-            this(clientName, lineItems, null, null);
+            this(clientName, lineItems, null, null, false, null);
         }
 
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                     String additionalNotes) {
-            this(clientName, lineItems, additionalNotes, null);
+            this(clientName, lineItems, additionalNotes, null, false, null);
+        }
+
+        public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
+                                    String additionalNotes, Boolean includeAdditionalNotes) {
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, false, null);
+        }
+
+        public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
+                                    String additionalNotes, Boolean includeAdditionalNotes,
+                                    Boolean confirmIncomplete) {
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, confirmIncomplete, null);
         }
     }
 

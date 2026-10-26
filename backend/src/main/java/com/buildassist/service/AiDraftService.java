@@ -4,6 +4,12 @@ import com.buildassist.dto.AiDtos.AiExtractedItem;
 import com.buildassist.dto.AiDtos.AiExtractionResult;
 import com.buildassist.dto.AiDtos.DraftLineItem;
 import com.buildassist.dto.AiDtos.DraftPricingInfo;
+import com.buildassist.dto.AiDtos.RequestedWork;
+import com.buildassist.dto.AiDtos.CoverageDecision;
+import com.buildassist.dto.AiDtos.CoverageDecisionRequest;
+import com.buildassist.dto.AiDtos.CoverageResponse;
+import com.buildassist.dto.AiDtos.CoverageStatus;
+import com.buildassist.dto.AiDtos.CoverageWarning;
 import com.buildassist.dto.DraftDtos;
 import com.buildassist.model.*;
 import com.buildassist.repository.CatalogItemRepository;
@@ -48,6 +54,7 @@ public class AiDraftService {
     private final SpringTemplateEngine templateEngine;
     private final QuotePdfService quotePdfService;
     private final QuoteEmailMessageFactory quoteEmailMessageFactory;
+    private final QuoteCoverageService quoteCoverageService;
 
     public AiDraftService(
             ChatModel chatModel,
@@ -59,7 +66,8 @@ public class AiDraftService {
             TokenEncryptionService tokenEncryptionService,
             SpringTemplateEngine templateEngine,
             QuotePdfService quotePdfService,
-            QuoteEmailMessageFactory quoteEmailMessageFactory) {
+            QuoteEmailMessageFactory quoteEmailMessageFactory,
+            QuoteCoverageService quoteCoverageService) {
         this.chatModel = chatModel;
         this.emailRepository = emailRepository;
         this.catalogItemRepository = catalogItemRepository;
@@ -72,6 +80,7 @@ public class AiDraftService {
         this.templateEngine = templateEngine;
         this.quotePdfService = quotePdfService;
         this.quoteEmailMessageFactory = quoteEmailMessageFactory;
+        this.quoteCoverageService = quoteCoverageService;
     }
 
     @Transactional
@@ -107,6 +116,7 @@ public class AiDraftService {
                 extractionResult.clientName());
 
         DraftPricingInfo pricingInfo = calculatePricing(extractionResult, catalogItems);
+        List<RequestedWork> requestedWorks = quoteCoverageService.createRequestedWorks(extractionResult, catalogItems);
 
         EmailDraft emailDraft = new EmailDraft();
         emailDraft.setEmail(email);
@@ -118,9 +128,15 @@ public class AiDraftService {
         emailDraft.setLineItemsJson(serializeJsonList(pricingInfo.items()));
         emailDraft.setReviewWarningsJson(serializeJsonList(extractionResult.reviewWarnings()));
         emailDraft.setUnmappedRequestsJson(serializeJsonList(extractionResult.unmappedRequests()));
+        emailDraft.setRequestedWorkItemsJson(quoteCoverageService.writeJson(requestedWorks));
+        emailDraft.setCoverageDecisionsJson(quoteCoverageService.writeJson(
+                quoteCoverageService.captureInitialMatches(requestedWorks, pricingInfo.items())));
+        emailDraft.setAcknowledgedWarningsJson("[]");
+        emailDraft.setAnalysisFingerprint(quoteCoverageService.analysisFingerprint(email.getBodyText(), normalizedNotes));
 
         EmailDraft savedDraft = emailDraftRepository.save(emailDraft);
 
+        CoverageResponse coverage = coverageFor(savedDraft);
         return new DraftDtos.AnalysisResponse(
                 savedDraft.getId(),
                 extractionResult.clientName(),
@@ -129,7 +145,10 @@ public class AiDraftService {
                 extractionResult.reviewWarnings() != null ? extractionResult.reviewWarnings() : List.of(),
                 savedDraft.getAdditionalNotes(),
                 savedDraft.isIncludeAdditionalNotes(),
-                isVatRegistered(userId)
+                isVatRegistered(userId),
+                coverage.workItems(),
+                coverage.warnings(),
+                coverage.analysisFresh()
         );
     }
 
@@ -148,9 +167,9 @@ public class AiDraftService {
             throw new IllegalArgumentException("Save request is required");
         }
 
-        List<DraftLineItem> lineItems = request.lineItems() != null && !request.lineItems().isEmpty()
+        List<DraftLineItem> lineItems = request.lineItems() != null
                 ? recalculateGrossLineItems(request.lineItems())
-                : draft.getLineItems();
+                : recalculateGrossLineItems(draft.getLineItems());
         String clientName = request.clientName() != null && !request.clientName().isBlank()
                 ? request.clientName()
                 : (draft.getClientName() != null ? draft.getClientName() : (email.getFromAddress() != null ? email.getFromAddress() : "Érdeklődő"));
@@ -166,9 +185,7 @@ public class AiDraftService {
         draft.setLineItemsJson(serializeJsonList(lineItems));
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(),
-                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
-                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
+        return toResponse(draft, userId);
     }
 
     @Transactional
@@ -186,9 +203,9 @@ public class AiDraftService {
             throw new IllegalArgumentException("Preview request is required");
         }
 
-        List<DraftLineItem> lineItems = request.lineItems() != null && !request.lineItems().isEmpty()
+        List<DraftLineItem> lineItems = request.lineItems() != null
                 ? recalculateGrossLineItems(request.lineItems())
-                : draft.getLineItems();
+                : recalculateGrossLineItems(draft.getLineItems());
         String clientName = request.clientName() != null && !request.clientName().isBlank()
                 ? request.clientName()
                 : (draft.getClientName() != null
@@ -218,14 +235,12 @@ public class AiDraftService {
         }
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draftHtmlBody, draft.getUnmappedRequests(),
-                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
-                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
+        return toResponse(draft, userId);
     }
 
     @Transactional
     public DraftDtos.GenerateDraftResponse finalizeDraft(Long draftId, DraftDtos.FinalizeDraftRequest request, Long userId) {
-        EmailDraft draft = emailDraftRepository.findById(draftId)
+        EmailDraft draft = emailDraftRepository.findByIdForUpdate(draftId)
                 .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
 
         Email email = draft.getEmail();
@@ -238,12 +253,30 @@ public class AiDraftService {
             throw new IllegalArgumentException("Draft preview must be generated first");
         }
 
+        if (draft.getStatus() == EmailDraft.DraftStatus.READY) {
+            return toResponse(draft, userId);
+        }
+
         DraftDtos.FinalizeDraftRequest finalRequest = request != null
                 ? request
                 : new DraftDtos.FinalizeDraftRequest(
                         draft.getClientName(), draft.getLineItems(), draft.getAdditionalNotes(),
                         draft.isIncludeAdditionalNotes());
+        if (request != null && request.confirmedFingerprint() != null
+                && !Objects.equals(request.confirmedFingerprint(), coverageFor(draft).quoteFingerprint())) {
+            throw new IllegalArgumentException("Az ajánlat mentés közben megváltozott; ellenőrizd újra.");
+        }
         previewDraft(draftId, finalRequest, userId);
+        CoverageResponse coverage = coverageFor(draft);
+        if (request != null && request.confirmedFingerprint() != null
+                && !Objects.equals(request.confirmedFingerprint(), coverage.quoteFingerprint())) {
+            throw new IllegalArgumentException("Az ajánlat mentés közben megváltozott; ellenőrizd újra.");
+        }
+        if (!coverage.unresolvedIssues().isEmpty()
+                && (request == null || !Boolean.TRUE.equals(request.confirmIncomplete())
+                || !Objects.equals(request.confirmedFingerprint(), coverage.quoteFingerprint()))) {
+            throw new IllegalArgumentException("Az ajánlat ellenőrzést igényel. A Gmail-piszkozat megerősítése szükséges.");
+        }
 
         try {
             CompanyProfile profile = companyProfileRepository.findByUserId(userId).orElse(null);
@@ -257,9 +290,7 @@ public class AiDraftService {
         draft.setStatus(EmailDraft.DraftStatus.READY);
         emailDraftRepository.save(draft);
 
-        return new DraftDtos.GenerateDraftResponse(draftId, draft.getDraftBody(), draft.getUnmappedRequests(),
-                draft.getReviewWarnings(), draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
-                draft.isIncludeAdditionalNotes(), isVatRegistered(userId));
+        return toResponse(draft, userId);
     }
 
     @Transactional
@@ -298,7 +329,7 @@ public class AiDraftService {
     }
 
     private List<DraftLineItem> recalculateGrossLineItems(List<DraftLineItem> lineItems) {
-        return lineItems.stream()
+        List<DraftLineItem> normalized = lineItems.stream()
                 .map(item -> {
                     if (item == null || item.quantity() == null || item.unitPrice() == null) {
                         throw new IllegalArgumentException("Quote line items must include quantity and gross unit price");
@@ -306,9 +337,101 @@ public class AiDraftService {
                     BigDecimal grossSubtotal = item.quantity().multiply(item.unitPrice())
                             .setScale(0, RoundingMode.HALF_UP);
                     return new DraftLineItem(
-                            item.name(), item.unit(), item.quantity(), item.unitPrice(), grossSubtotal);
+                            item.name(), item.unit(), item.quantity(), item.unitPrice(), grossSubtotal,
+                            item.lineItemId() == null || item.lineItemId().isBlank()
+                                    ? UUID.randomUUID().toString() : item.lineItemId(),
+                            item.catalogItemId());
                 })
                 .toList();
+        Set<String> lineItemIds = new HashSet<>();
+        for (DraftLineItem item : normalized) {
+            if (item.lineItemId().length() > 100 || !lineItemIds.add(item.lineItemId())) {
+                throw new IllegalArgumentException("Quote line item identifiers must be unique.");
+            }
+        }
+        return normalized;
+    }
+
+    @Transactional
+    public DraftDtos.GenerateDraftResponse updateCoverageDecision(
+            Long draftId, String issueId, CoverageDecisionRequest request, Long userId) {
+        if (request == null || request.status() == null || request.draft() == null) {
+            throw new IllegalArgumentException("A döntés és az aktuális ajánlati adatok megadása kötelező.");
+        }
+        saveDraft(draftId, request.draft(), userId);
+        EmailDraft draft = emailDraftRepository.findById(draftId)
+                .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
+        List<RequestedWork> works = requestedWorksFor(draft);
+        Optional<RequestedWork> work = works.stream()
+                .filter(item -> item.workId().equals(issueId))
+                .findFirst();
+        if (work.isPresent()) {
+            List<CoverageDecision> decisions = quoteCoverageService.readDecisions(draft.getCoverageDecisionsJson());
+            List<CoverageDecision> updated = quoteCoverageService.setDecision(
+                    decisions, issueId, request.status(), request.lineItemId(), draft.getLineItems());
+            draft.setCoverageDecisionsJson(quoteCoverageService.writeJson(updated));
+        } else {
+            List<CoverageWarning> warnings = quoteCoverageService.warningItems(
+                    draft.getReviewWarnings(), new HashSet<>());
+            boolean warningExists = warnings.stream().anyMatch(warning -> warning.warningId().equals(issueId));
+            if (!warningExists) {
+                throw new IllegalArgumentException("Az ellenőrzési elem nem található ennél az ajánlatnál.");
+            }
+            List<String> acknowledged = new ArrayList<>(
+                    quoteCoverageService.readStringList(draft.getAcknowledgedWarningsJson()));
+            acknowledged.remove(issueId);
+            if (request.status() == CoverageStatus.INCLUDED) {
+                acknowledged.add(issueId);
+            } else if (request.status() != CoverageStatus.NEEDS_REVIEW) {
+                throw new IllegalArgumentException("Érvénytelen AI-figyelmeztetés állapot.");
+            }
+            draft.setAcknowledgedWarningsJson(quoteCoverageService.writeJson(acknowledged));
+        }
+        emailDraftRepository.save(draft);
+        return toResponse(draft, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public CoverageResponse getCoverage(Long draftId, Long userId) {
+        EmailDraft draft = emailDraftRepository.findById(draftId)
+                .orElseThrow(() -> new IllegalArgumentException("Draft not found"));
+        Email email = draft.getEmail();
+        if (email == null || email.getGmailConnection() == null || email.getGmailConnection().getUser() == null
+                || !Objects.equals(email.getGmailConnection().getUser().getId(), userId)) {
+            throw new IllegalArgumentException("Draft not found or access denied");
+        }
+        return coverageFor(draft);
+    }
+
+    private DraftDtos.GenerateDraftResponse toResponse(EmailDraft draft, Long userId) {
+        CoverageResponse coverage = coverageFor(draft);
+        return new DraftDtos.GenerateDraftResponse(
+                draft.getId(), draft.getDraftBody(), draft.getUnmappedRequests(), draft.getReviewWarnings(),
+                draft.getLineItems(), draft.getClientName(), draft.getAdditionalNotes(),
+                draft.isIncludeAdditionalNotes(), isVatRegistered(userId),
+                coverage.workItems(), coverage.warnings(), coverage.analysisFresh(),
+                draft.getStatus() == EmailDraft.DraftStatus.READY);
+    }
+
+    private CoverageResponse coverageFor(EmailDraft draft) {
+        List<RequestedWork> works = requestedWorksFor(draft);
+        List<CoverageDecision> decisions = quoteCoverageService.readDecisions(draft.getCoverageDecisionsJson());
+        List<String> acknowledged = quoteCoverageService.readStringList(draft.getAcknowledgedWarningsJson());
+        Email email = draft.getEmail();
+        boolean analysisFresh = draft.getAnalysisFingerprint() == null || Objects.equals(
+                draft.getAnalysisFingerprint(),
+                quoteCoverageService.analysisFingerprint(
+                        email == null ? null : email.getBodyText(), draft.getAdditionalNotes()));
+        return quoteCoverageService.response(
+                works, decisions, draft.getLineItems(), draft.getReviewWarnings(),
+                acknowledged, analysisFresh, quoteCoverageService.quoteFingerprint(draft));
+    }
+
+    private List<RequestedWork> requestedWorksFor(EmailDraft draft) {
+        if (draft.getRequestedWorkItemsJson() == null || draft.getRequestedWorkItemsJson().isBlank()) {
+            return quoteCoverageService.legacyRequestedWorks(draft.getUnmappedRequests(), draft.getId());
+        }
+        return quoteCoverageService.readRequestedWorks(draft.getRequestedWorkItemsJson());
     }
 
     private String serializeJsonList(List<?> items) {
@@ -366,6 +489,8 @@ public class AiDraftService {
                              Add a warning: "Az ügyfél csak [X] oldalra kért szegélykövet. Ha a terület nem csatlakozik meglévő építményhez/burkolathoz, a teljes körbekerítéshez több szegélykőre lesz szükség."
                            - AMBIGUOUS SCOPE: Flag any missing parameters that could change the quote significantly (e.g., unknown ground type, missing depth for excavation).
                         9. Consider the contractor's supplementary consultation notes when extracting work items and quantities, while keeping the email as the source for the client's identity.
+                        10. Also return `requested_works`: one entry for each distinct work the customer explicitly requested or that appears in the supplementary consultation notes. Do NOT include preparation work you inferred yourself unless the customer requested it. Each entry must have `name`, `source` (`EMAIL` or `ADDITIONAL_INFO`), `catalog_item_id` (the matching catalog ID only when the match is clear, otherwise null), `quantity` (only when explicitly stated or reliably calculable, otherwise null; use the original requested/base quantity before catalog calculation strategies such as waste allowances), `unit` (only when known, otherwise null), and a short `reason`. Keep the existing `items`, `unmapped_requests`, and `review_warnings` fields as well.
+                        11. If the same work appears in both sources, return it once and use `EMAIL` as its source. Do not infer that an item is covered merely because a broad or generic catalog item exists.
                 
                         CATALOG REFERENCE (ID - Name - Unit):
                         {catalogReference}
@@ -395,7 +520,7 @@ public class AiDraftService {
             log.info("AI raw response:\n{}", aiResponse);
             AiExtractionResult result = outputConverter.convert(aiResponse);
 
-            return result != null ? result : new AiExtractionResult(null, List.of(), List.of(), List.of());
+            return result != null ? result : new AiExtractionResult(null, List.of(), List.of(), List.of(), List.of());
         } catch (Exception ex) {
             log.error("AI extraction failed for email id: {}", email.getId(), ex);
             throw new RuntimeException("Failed to extract items using AI: " + ex.getMessage(), ex);
@@ -440,7 +565,9 @@ public class AiDraftService {
                             catalogItem.getUnit(),
                             adjustedQuantity,
                             unitPrice,
-                            subtotal
+                            subtotal,
+                            UUID.randomUUID().toString(),
+                            catalogItem.getId()
                     ));
 
                     grandTotal = grandTotal.add(subtotal);
@@ -452,23 +579,7 @@ public class AiDraftService {
     }
 
     private BigDecimal adjustQuantity(BigDecimal baseQuantity, CalculationStrategy strategy) {
-        if (strategy == null) return baseQuantity;
-
-        switch (strategy) {
-            case WALL_SURFACE_3X:
-                return baseQuantity.multiply(new BigDecimal("3"));
-            case WASTE_PERCENTAGE_10:
-                return baseQuantity.multiply(new BigDecimal("1.10")).setScale(2, RoundingMode.HALF_UP);
-            case ROOM_PERIMETER:
-                double area = baseQuantity.doubleValue();
-                if (area <= 0) return baseQuantity;
-                return BigDecimal.valueOf(Math.sqrt(area) * 4).setScale(2, RoundingMode.HALF_UP);
-            case VOLUME_BY_THICKNESS:
-                return baseQuantity.multiply(new BigDecimal("0.15")).setScale(2, RoundingMode.HALF_UP);
-            case DIRECT:
-            default:
-                return baseQuantity;
-        }
+        return strategy == null ? baseQuantity : strategy.adjustQuantity(baseQuantity);
     }
 
     private String generateDraftHtml(

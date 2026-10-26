@@ -48,6 +48,7 @@ public class EmailService {
     private final EmailRepository emailRepository;
     private final GmailConnectionRepository gmailConnectionRepository;
     private final CompanyProfileRepository companyProfileRepository;
+    private final QuoteCoverageService quoteCoverageService;
     private final GmailService gmailService;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,12 +58,14 @@ public class EmailService {
             EmailDraftRepository emailDraftRepository,
             GmailConnectionRepository gmailConnectionRepository,
             GmailService gmailService,
-            CompanyProfileRepository companyProfileRepository) {
+            CompanyProfileRepository companyProfileRepository,
+            QuoteCoverageService quoteCoverageService) {
         this.emailRepository = emailRepository;
         this.emailDraftRepository = emailDraftRepository;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gmailService = gmailService;
         this.companyProfileRepository = companyProfileRepository;
+        this.quoteCoverageService = quoteCoverageService;
     }
 
     public List<EmailSummaryResponse> listEmails(Long userId) {
@@ -210,12 +213,29 @@ public class EmailService {
 
         DraftDtos.GenerateDraftResponse draftEmail =
                 emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(emailId)
-                        .map(draft -> new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(),
-                                draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(),
-                                draft.getClientName(), draft.getAdditionalNotes(), draft.isIncludeAdditionalNotes(),
-                                companyProfileRepository.findByUserId(userId)
-                                        .map(com.buildassist.model.CompanyProfile::isVatRegistered)
-                                        .orElse(false)))
+                        .map(draft -> {
+                            List<com.buildassist.dto.AiDtos.RequestedWork> works =
+                                    draft.getRequestedWorkItemsJson() == null || draft.getRequestedWorkItemsJson().isBlank()
+                                            ? quoteCoverageService.legacyRequestedWorks(draft.getUnmappedRequests(), draft.getId())
+                                            : quoteCoverageService.readRequestedWorks(draft.getRequestedWorkItemsJson());
+                            List<com.buildassist.dto.AiDtos.CoverageDecision> decisions =
+                                    quoteCoverageService.readDecisions(draft.getCoverageDecisionsJson());
+                            List<String> acknowledged =
+                                    quoteCoverageService.readStringList(draft.getAcknowledgedWarningsJson());
+                            boolean analysisFresh = draft.getAnalysisFingerprint() == null
+                                    || java.util.Objects.equals(draft.getAnalysisFingerprint(),
+                                    quoteCoverageService.analysisFingerprint(email.getBodyText(), draft.getAdditionalNotes()));
+                            com.buildassist.dto.AiDtos.CoverageResponse coverage = quoteCoverageService.response(
+                                    works, decisions, draft.getLineItems(), draft.getReviewWarnings(),
+                                    acknowledged, analysisFresh, quoteCoverageService.quoteFingerprint(draft));
+                            return new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(),
+                                    draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(),
+                                    draft.getClientName(), draft.getAdditionalNotes(), draft.isIncludeAdditionalNotes(),
+                                    companyProfileRepository.findByUserId(userId)
+                                            .map(com.buildassist.model.CompanyProfile::isVatRegistered)
+                                            .orElse(false), coverage.workItems(), coverage.warnings(),
+                                    coverage.analysisFresh(), draft.getStatus() == EmailDraft.DraftStatus.READY);
+                        })
                         .orElse(null);
 
         return new EmailDetailResponse(
