@@ -4,23 +4,24 @@ import {useCallback, useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
-import type {CalculationStrategy, CatalogItem} from "@/lib/types";
-import {STRATEGY_DESCRIPTIONS} from "@/lib/types";
+import type {CatalogItem, CatalogItemType} from "@/lib/types";
 import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {Button} from "@/components/ui/Button";
 import {CatalogInfoBanner} from "@/components/catalog/CatalogInfoBanner";
 
 type FormData = {
     name: string;
-    unitPrice: number | "";
+    netSellingUnitPrice: number | "";
     unit: string;
-    calculationStrategy: CalculationStrategy | "";
+    itemType: CatalogItemType;
+    netProcurementUnitCost: number | "";
+    estimatedOwnLaborUnitCost: number | "";
 };
 
 type PresetItem = {
     name: string;
     unit: string;
-    calculationStrategy: CalculationStrategy;
+    itemType: CatalogItemType;
 };
 
 type PresetType = "paving" | "electrical" | "painting" | "plumbing" | "masonry" | "tiling" | "general";
@@ -30,80 +31,86 @@ const PRESETS: Record<PresetType, { title: string; icon: string; items: PresetIt
         title: "Térkövezés & Földmunka",
         icon: "🧹",
         items: [
-            {name: "Tereprendezés és földkiemelés", unit: "m2", calculationStrategy: "DIRECT"},
-            {name: "Alapozó zúzottkő réteg terítése", unit: "m3", calculationStrategy: "VOLUME_BY_THICKNESS"},
-            {name: "Szegélykő lerakása beton ágyazatba", unit: "fm", calculationStrategy: "ROOM_PERIMETER"},
-            {name: "Térkő lerakás (munkadíj)", unit: "m2", calculationStrategy: "WASTE_PERCENTAGE_10"},
+            {name: "Tereprendezés és földkiemelés", unit: "m2", itemType: "LABOR"},
+            {name: "Alapozó zúzottkő réteg", unit: "m3", itemType: "MATERIAL"},
+            {name: "Szegélykő", unit: "m", itemType: "MATERIAL"},
+            {name: "Szegélykő lerakási munkadíj", unit: "m", itemType: "LABOR"},
+            {name: "Térkőanyag", unit: "m2", itemType: "MATERIAL"},
+            {name: "Térkő lerakás", unit: "m2", itemType: "LABOR"},
         ],
     },
     electrical: {
         title: "Villanyszerelés",
         icon: "⚡",
         items: [
-            {name: "Szerelvényezés", unit: "db", calculationStrategy: "DIRECT"},
-            {name: "Kábelnyomvonal kiépítés", unit: "fm", calculationStrategy: "DIRECT"},
-            {name: "Kismegszakító cseréje", unit: "db", calculationStrategy: "DIRECT"},
+            {name: "Konnektorszerelés", unit: "db", itemType: "LABOR"},
+            {name: "Kapcsolószerelés", unit: "db", itemType: "LABOR"},
+            {name: "Lámpakiállás", unit: "db", itemType: "LABOR"},
+            {name: "Szerelvényanyag", unit: "db", itemType: "MATERIAL"},
         ],
     },
     painting: {
         title: "Festés & Gipszkartonozás",
         icon: "🎨",
         items: [
-            {name: "Fal előkészítés/glettelés", unit: "m2", calculationStrategy: "WALL_SURFACE_3X"},
-            {name: "Tisztasági festés", unit: "m2", calculationStrategy: "WALL_SURFACE_3X"},
-            {name: "Gipszkarton válaszfal", unit: "m2", calculationStrategy: "DIRECT"},
+            {name: "Fal előkészítés/glettelés", unit: "m2", itemType: "LABOR"},
+            {name: "Falfestési munkadíj", unit: "m2", itemType: "LABOR"},
+            {name: "Mennyezetfestési munkadíj", unit: "m2", itemType: "LABOR"},
+            {name: "Festékanyag", unit: "l", itemType: "MATERIAL"},
+            {name: "Gipszkarton válaszfal", unit: "m2", itemType: "COMBINED"},
         ],
     },
     plumbing: {
         title: "Víz-, Gáz- & Épületgépészet",
         icon: "🚿",
         items: [
-            {name: "Víz- és szennyvízkiállás kiépítése", unit: "db", calculationStrategy: "DIRECT"},
-            {name: "Szerelvényezés (csaptelep, mosdó, WC)", unit: "db", calculationStrategy: "DIRECT"},
-            {name: "Padlófűtés csőfektetés", unit: "m2", calculationStrategy: "DIRECT"},
-            {name: "Radiátor felszerelése és bekötése", unit: "db", calculationStrategy: "DIRECT"},
+            {name: "Víz- és szennyvízkiállás kiépítése", unit: "db", itemType: "LABOR"},
+            {name: "Szerelvényezés (csaptelep, mosdó, WC)", unit: "db", itemType: "COMBINED"},
+            {name: "Padlófűtés csőfektetés", unit: "m2", itemType: "LABOR"},
+            {name: "Radiátor felszerelése és bekötése", unit: "db", itemType: "COMBINED"},
         ],
     },
     masonry: {
         title: "Kőműves munkák & Szerkezet",
         icon: "🧱",
         items: [
-            {name: "Válaszfalazás (Ytong / tégla)", unit: "m2", calculationStrategy: "DIRECT"},
-            {name: "Oldalfal vakolása és simítása", unit: "m2", calculationStrategy: "WALL_SURFACE_3X"},
-            {name: "Aljzatkiegyenlítés / Estrich betonozás", unit: "m2", calculationStrategy: "DIRECT"},
-            {name: "Kézi / gépi bontási munkák", unit: "m3", calculationStrategy: "DIRECT"},
+            {name: "Válaszfalazás (Ytong / tégla)", unit: "m2", itemType: "COMBINED"},
+            {name: "Oldalfal vakolása és simítása", unit: "m2", itemType: "LABOR"},
+            {name: "Aljzatkiegyenlítés / Estrich betonozás", unit: "m2", itemType: "LABOR"},
+            {name: "Kézi / gépi bontási munkák", unit: "m3", itemType: "LABOR"},
         ],
     },
     tiling: {
         title: "Hidegburkolás",
         icon: "🔲",
         items: [
-            {name: "Csempe / járólap fektetés", unit: "m2", calculationStrategy: "WASTE_PERCENTAGE_10"},
-            {name: "Kenhető vízszigetelés készítése", unit: "m2", calculationStrategy: "DIRECT"},
-            {name: "Lábazat felrakása és fugázás", unit: "fm", calculationStrategy: "ROOM_PERIMETER"},
-            {name: "Csempe élvédőzés", unit: "fm", calculationStrategy: "DIRECT"},
+            {name: "Csempe / járólap fektetése", unit: "m2", itemType: "LABOR"},
+            {name: "Burkolóanyag", unit: "m2", itemType: "MATERIAL"},
+            {name: "Kenhető vízszigetelés készítése", unit: "m2", itemType: "LABOR"},
+            {name: "Lábazat felrakása és fugázás", unit: "m", itemType: "LABOR"},
+            {name: "Csempe élvédőzés", unit: "m", itemType: "LABOR"},
         ],
     },
     general: {
         title: "Általános Kivitelezés",
         icon: "🛠️",
         items: [
-            {name: "Kiszállási és felmérési díj", unit: "alkalom", calculationStrategy: "DIRECT"},
-            {name: "Bontási törmelék / sitt elszállítása", unit: "m3", calculationStrategy: "DIRECT"},
-            {name: "Konténer rendelés és ügyintézés", unit: "db", calculationStrategy: "DIRECT"},
-            {name: "Segédanyag beszerzés és szállítás", unit: "alkalom", calculationStrategy: "DIRECT"},
+            {name: "Kiszállási és felmérési díj", unit: "alkalom", itemType: "OTHER"},
+            {name: "Bontási törmelék / sitt elszállítása", unit: "m3", itemType: "OTHER"},
+            {name: "Konténer rendelés és ügyintézés", unit: "db", itemType: "OTHER"},
+            {name: "Segédanyag beszerzés és szállítás", unit: "alkalom", itemType: "MATERIAL"},
         ],
     },
 };
 
-const UNITS = ["m2", "m3", "db", "fm"];
-const STRATEGIES: CalculationStrategy[] = [
-    "DIRECT",
-    "WALL_SURFACE_3X",
-    "ROOM_PERIMETER",
-    "VOLUME_BY_THICKNESS",
-    "WASTE_PERCENTAGE_10",
-];
+const UNITS = ["m2", "m3", "m", "cm", "l", "db", "kg", "h", "alkalom"];
+const ITEM_TYPES: CatalogItemType[] = ["MATERIAL", "LABOR", "COMBINED", "OTHER"];
+const ITEM_TYPE_LABELS: Record<CatalogItemType, string> = {
+    MATERIAL: "Anyag",
+    LABOR: "Munkadíj",
+    COMBINED: "Anyagot és munkadíjat tartalmaz",
+    OTHER: "Egyéb",
+};
 
 export default function CatalogSettingsPage() {
     const router = useRouter();
@@ -116,9 +123,11 @@ export default function CatalogSettingsPage() {
     const [loadingPreset, setLoadingPreset] = useState<PresetType | null>(null);
     const [formData, setFormData] = useState<FormData>({
         name: "",
-        unitPrice: "",
+        netSellingUnitPrice: "",
         unit: "m2",
-        calculationStrategy: "DIRECT",
+        itemType: "LABOR",
+        netProcurementUnitCost: "",
+        estimatedOwnLaborUnitCost: "",
     });
 
     const loadItems = useCallback(async () => {
@@ -146,9 +155,11 @@ export default function CatalogSettingsPage() {
     const resetForm = () => {
         setFormData({
             name: "",
-            unitPrice: "",
+            netSellingUnitPrice: "",
             unit: "m2",
-            calculationStrategy: "DIRECT",
+            itemType: "LABOR",
+            netProcurementUnitCost: "",
+            estimatedOwnLaborUnitCost: "",
         });
         setEditingId(null);
         setShowForm(false);
@@ -157,9 +168,11 @@ export default function CatalogSettingsPage() {
     const handleEdit = (item: CatalogItem) => {
         setFormData({
             name: item.name,
-            unitPrice: item.unitPrice,
+            netSellingUnitPrice: item.netSellingUnitPrice,
             unit: item.unit,
-            calculationStrategy: item.calculationStrategy || "DIRECT",
+            itemType: item.itemType,
+            netProcurementUnitCost: item.netProcurementUnitCost ?? "",
+            estimatedOwnLaborUnitCost: item.estimatedOwnLaborUnitCost ?? "",
         });
         setEditingId(item.id);
         setShowForm(true);
@@ -173,9 +186,11 @@ export default function CatalogSettingsPage() {
         try {
             const payload = {
                 name: formData.name,
-                unitPrice: formData.unitPrice,
+                netSellingUnitPrice: formData.netSellingUnitPrice,
                 unit: formData.unit,
-                calculationStrategy: formData.calculationStrategy || null,
+                itemType: formData.itemType,
+                netProcurementUnitCost: formData.netProcurementUnitCost === "" ? null : formData.netProcurementUnitCost,
+                estimatedOwnLaborUnitCost: formData.estimatedOwnLaborUnitCost === "" ? null : formData.estimatedOwnLaborUnitCost,
             };
 
             if (editingId) {
@@ -222,9 +237,11 @@ export default function CatalogSettingsPage() {
                     method: "POST",
                     body: {
                         name: item.name,
-                        unitPrice: 0,
+                        netSellingUnitPrice: 0,
                         unit: item.unit,
-                        calculationStrategy: item.calculationStrategy,
+                        itemType: item.itemType,
+                        netProcurementUnitCost: null,
+                        estimatedOwnLaborUnitCost: null,
                     },
                 });
                 createdCount += 1;
@@ -303,11 +320,11 @@ export default function CatalogSettingsPage() {
                                         required
                                         step="0.01"
                                         min="0"
-                                        value={formData.unitPrice}
+                                        value={formData.netSellingUnitPrice}
                                         onChange={(e) =>
                                             setFormData({
                                                 ...formData,
-                                                unitPrice: e.target.value === "" ? "" : parseFloat(e.target.value),
+                                                netSellingUnitPrice: e.target.value === "" ? "" : parseFloat(e.target.value),
                                             })
                                         }
                                         className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -337,27 +354,47 @@ export default function CatalogSettingsPage() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700">
-                                    Kalkulációs logika
-                                </label>
+                                <label className="block text-sm font-medium text-slate-700">Tételtípus *</label>
                                 <select
-                                    value={formData.calculationStrategy}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            calculationStrategy: e.target.value as CalculationStrategy | "",
-                                        })
-                                    }
+                                    required
+                                    value={formData.itemType}
+                                    onChange={(e) => setFormData({...formData, itemType: e.target.value as CatalogItemType})}
                                     className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 >
-                                    <option value="">-- Válassz kalkulációs logikát --</option>
-                                    {STRATEGIES.map((strategy) => (
-                                        <option key={strategy} value={strategy}>
-                                            {STRATEGY_DESCRIPTIONS[strategy]}
-                                        </option>
-                                    ))}
+                                    {ITEM_TYPES.map((type) => <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>)}
                                 </select>
                             </div>
+
+                            {formData.itemType === "MATERIAL" || formData.itemType === "COMBINED" ? (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700">
+                                        Nettó beszerzési egységköltség (opcionális)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={formData.netProcurementUnitCost}
+                                        onChange={(e) => setFormData({...formData, netProcurementUnitCost: e.target.value === "" ? "" : parseFloat(e.target.value)})}
+                                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900"
+                                    />
+                                </div>
+                            ) : null}
+                            {formData.itemType === "LABOR" || formData.itemType === "COMBINED" ? (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700">
+                                        Becsült saját munkaköltség / egység (opcionális)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={formData.estimatedOwnLaborUnitCost}
+                                        onChange={(e) => setFormData({...formData, estimatedOwnLaborUnitCost: e.target.value === "" ? "" : parseFloat(e.target.value)})}
+                                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900"
+                                    />
+                                </div>
+                            ) : null}
 
                             <div className="flex gap-3 pt-4">
                                 <Button
@@ -443,42 +480,13 @@ export default function CatalogSettingsPage() {
                                     Munkafázis / Megnevezés
                                 </th>
                                 <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                                    Egységár
+                                    Nettó eladási egységár
                                 </th>
                                 <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
                                     Mértékegység
                                 </th>
                                 <th className="px-6 py-3 text-left text-sm font-semibold text-slate-900">
-                                    <span className="inline-flex items-center gap-1.5">
-                                        AI Számítási Szabály
-                                        <span className="group relative inline-flex">
-                                            <button
-                                                type="button"
-                                                aria-label="Információ az AI számítási szabályról"
-                                                aria-describedby="catalog-calculation-tooltip"
-                                                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            >
-                                                <svg
-                                                    aria-hidden="true"
-                                                    viewBox="0 0 20 20"
-                                                    fill="none"
-                                                    className="h-4 w-4"
-                                                >
-                                                    <circle cx="10" cy="10" r="8" stroke="currentColor"
-                                                            strokeWidth="1.5"/>
-                                                    <path d="M10 9v5m0-8h.01" stroke="currentColor" strokeWidth="1.5"
-                                                          strokeLinecap="round"/>
-                                                </svg>
-                                            </button>
-                                            <span
-                                                id="catalog-calculation-tooltip"
-                                                role="tooltip"
-                                                className="invisible absolute left-0 top-full z-20 mt-2 w-72 rounded-md bg-slate-800 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-                                            >
-                                                Megadja az AI-nak, hogy milyen matematikai összefüggést használjon a megrendelő által megadott méretekből (pl. m2-ből hogyan számoljon szegélyléc folyómétert vagy zúzottkő köbmétert).
-                                            </span>
-                                        </span>
-                                    </span>
+                                    Tételtípus
                                 </th>
                                 <th className="px-6 py-3 text-right text-sm font-semibold text-slate-900">
                                     Műveletek
@@ -495,15 +503,13 @@ export default function CatalogSettingsPage() {
                                         {item.name}
                                     </td>
                                     <td className="px-6 py-4 text-sm text-slate-900">
-                                        {item.unitPrice.toLocaleString("hu-HU")} Ft
+                                        {item.netSellingUnitPrice.toLocaleString("hu-HU")} Ft
                                     </td>
                                     <td className="px-6 py-4 text-sm text-slate-900">
                                         {item.unit}
                                     </td>
                                     <td className="px-6 py-4 text-sm text-slate-600">
-                                        {item.calculationStrategy
-                                            ? STRATEGY_DESCRIPTIONS[item.calculationStrategy]
-                                            : "—"}
+                                        {ITEM_TYPE_LABELS[item.itemType]}
                                     </td>
                                     <td className="px-6 py-4 text-right text-sm space-x-2">
                                         <button

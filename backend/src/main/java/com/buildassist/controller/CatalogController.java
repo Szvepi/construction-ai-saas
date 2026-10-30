@@ -6,6 +6,7 @@ import com.buildassist.dto.CatalogDtos.UpdateCatalogItemRequest;
 import com.buildassist.security.SecurityUtils;
 import com.buildassist.service.CatalogService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -36,12 +37,13 @@ public class CatalogController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public CatalogItemResponse createItem(@RequestBody CreateCatalogItemRequest request) {
+    public CatalogItemResponse createItem(@Valid @RequestBody CreateCatalogItemRequest request) {
         return catalogService.createItem(SecurityUtils.currentUserId(), request);
     }
 
     @PutMapping("/{id}")
-    public CatalogItemResponse updateItem(@PathVariable Long id, @RequestBody UpdateCatalogItemRequest request) {
+    public CatalogItemResponse updateItem(
+            @PathVariable Long id, @Valid @RequestBody UpdateCatalogItemRequest request) {
         return catalogService.updateItem(SecurityUtils.currentUserId(), id, request);
     }
 

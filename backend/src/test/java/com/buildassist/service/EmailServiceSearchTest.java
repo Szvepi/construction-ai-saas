@@ -4,7 +4,6 @@ import com.buildassist.model.EmailCategory;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailDraft;
 import com.buildassist.model.GmailConnection;
-import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
@@ -21,7 +20,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -41,9 +39,9 @@ class EmailServiceSearchTest {
     @Mock
     private GmailConnectionRepository gmailConnectionRepository;
     @Mock
-    private CompanyProfileRepository companyProfileRepository;
-    @Mock
     private GmailService gmailService;
+    @Mock
+    private AiDraftService aiDraftService;
 
     private EmailService emailService;
 
@@ -54,8 +52,7 @@ class EmailServiceSearchTest {
                 emailDraftRepository,
                 gmailConnectionRepository,
                 gmailService,
-                companyProfileRepository,
-                new QuoteCoverageService(new ObjectMapper()));
+                aiDraftService);
     }
 
     @Test

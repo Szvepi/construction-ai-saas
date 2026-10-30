@@ -1,7 +1,10 @@
 package com.buildassist.dto;
 
+import com.buildassist.calculation.CalculationStatus;
+import com.buildassist.calculation.DraftQuoteSnapshot;
 import jakarta.validation.constraints.NotBlank;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public final class DraftDtos {
@@ -14,7 +17,20 @@ public final class DraftDtos {
                                         String clientName, String additionalNotes, boolean includeAdditionalNotes,
                                         boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
                                         List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
-                                        boolean gmailDraftCreated) {
+                                        boolean gmailDraftCreated, DraftQuoteSnapshot quoteSnapshot,
+                                        CalculationStatus calculationStatus, BigDecimal netQuotePrice) {
+        public GenerateDraftResponse(
+                Long draftId, String draftBody, List<String> unmappedRequests,
+                List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
+                String clientName, String additionalNotes, boolean includeAdditionalNotes,
+                boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
+                List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
+                boolean gmailDraftCreated) {
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName,
+                    additionalNotes, includeAdditionalNotes, vatRegistered, coverageItems,
+                    coverageWarnings, analysisFresh, gmailDraftCreated, null, null, null);
+        }
+
         public GenerateDraftResponse(Long draftId, String draftBody, List<String> unmappedRequests,
                                      List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
                                      String clientName) {
@@ -64,7 +80,19 @@ public final class DraftDtos {
                                    List<String> unmappedRequests, List<String> reviewWarnings,
                                    String additionalNotes, boolean includeAdditionalNotes, boolean vatRegistered,
                                    List<AiDtos.CoverageWorkItem> coverageItems,
-                                   List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh) {
+                                   List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
+                                   DraftQuoteSnapshot quoteSnapshot, CalculationStatus calculationStatus,
+                                   BigDecimal netQuotePrice) {
+        public AnalysisResponse(
+                Long draftId, String clientName, List<AiDtos.DraftLineItem> lineItems,
+                List<String> unmappedRequests, List<String> reviewWarnings, String additionalNotes,
+                boolean includeAdditionalNotes, boolean vatRegistered,
+                List<AiDtos.CoverageWorkItem> coverageItems,
+                List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh) {
+            this(draftId, clientName, lineItems, unmappedRequests, reviewWarnings, additionalNotes,
+                    includeAdditionalNotes, vatRegistered, coverageItems, coverageWarnings,
+                    analysisFresh, null, null, null);
+        }
     }
 
     public record AnalyzeRequest(String additionalNotes) {

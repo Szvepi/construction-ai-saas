@@ -10,7 +10,6 @@ import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.model.EmailDraft;
 import com.buildassist.model.GmailConnection;
-import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.EmailDraftRepository;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
@@ -47,9 +46,8 @@ public class EmailService {
     private final EmailDraftRepository emailDraftRepository;
     private final EmailRepository emailRepository;
     private final GmailConnectionRepository gmailConnectionRepository;
-    private final CompanyProfileRepository companyProfileRepository;
-    private final QuoteCoverageService quoteCoverageService;
     private final GmailService gmailService;
+    private final AiDraftService aiDraftService;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -58,14 +56,12 @@ public class EmailService {
             EmailDraftRepository emailDraftRepository,
             GmailConnectionRepository gmailConnectionRepository,
             GmailService gmailService,
-            CompanyProfileRepository companyProfileRepository,
-            QuoteCoverageService quoteCoverageService) {
+            AiDraftService aiDraftService) {
         this.emailRepository = emailRepository;
         this.emailDraftRepository = emailDraftRepository;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gmailService = gmailService;
-        this.companyProfileRepository = companyProfileRepository;
-        this.quoteCoverageService = quoteCoverageService;
+        this.aiDraftService = aiDraftService;
     }
 
     public List<EmailSummaryResponse> listEmails(Long userId) {
@@ -194,6 +190,7 @@ public class EmailService {
         return counts;
     }
 
+    @Transactional(readOnly = true)
     public EmailDetailResponse getEmail(Long userId, Long emailId) {
         Optional<GmailConnection> gmailConn = gmailConnectionRepository.findByUserId(userId);
         if (gmailConn.isEmpty()) {
@@ -213,29 +210,9 @@ public class EmailService {
 
         DraftDtos.GenerateDraftResponse draftEmail =
                 emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(emailId)
-                        .map(draft -> {
-                            List<com.buildassist.dto.AiDtos.RequestedWork> works =
-                                    draft.getRequestedWorkItemsJson() == null || draft.getRequestedWorkItemsJson().isBlank()
-                                            ? quoteCoverageService.legacyRequestedWorks(draft.getUnmappedRequests(), draft.getId())
-                                            : quoteCoverageService.readRequestedWorks(draft.getRequestedWorkItemsJson());
-                            List<com.buildassist.dto.AiDtos.CoverageDecision> decisions =
-                                    quoteCoverageService.readDecisions(draft.getCoverageDecisionsJson());
-                            List<String> acknowledged =
-                                    quoteCoverageService.readStringList(draft.getAcknowledgedWarningsJson());
-                            boolean analysisFresh = draft.getAnalysisFingerprint() == null
-                                    || java.util.Objects.equals(draft.getAnalysisFingerprint(),
-                                    quoteCoverageService.analysisFingerprint(email.getBodyText(), draft.getAdditionalNotes()));
-                            com.buildassist.dto.AiDtos.CoverageResponse coverage = quoteCoverageService.response(
-                                    works, decisions, draft.getLineItems(), draft.getReviewWarnings(),
-                                    acknowledged, analysisFresh, quoteCoverageService.quoteFingerprint(draft));
-                            return new DraftDtos.GenerateDraftResponse(draft.getId(), draft.getDraftBody(),
-                                    draft.getUnmappedRequests(), draft.getReviewWarnings(), draft.getLineItems(),
-                                    draft.getClientName(), draft.getAdditionalNotes(), draft.isIncludeAdditionalNotes(),
-                                    companyProfileRepository.findByUserId(userId)
-                                            .map(com.buildassist.model.CompanyProfile::isVatRegistered)
-                                            .orElse(false), coverage.workItems(), coverage.warnings(),
-                                    coverage.analysisFresh(), draft.getStatus() == EmailDraft.DraftStatus.READY);
-                        })
+                        .filter(draft -> draft.getQuoteSnapshotJson() != null
+                                && !draft.getQuoteSnapshotJson().isBlank())
+                        .map(draft -> aiDraftService.responseForEmail(draft, userId))
                         .orElse(null);
 
         return new EmailDetailResponse(

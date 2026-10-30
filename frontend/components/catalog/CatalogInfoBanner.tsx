@@ -86,14 +86,12 @@ export function CatalogInfoBanner() {
                 💡 Hogyan működik a MIRA Katalógus?
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-                A MIRA ebből az árjegyzékből dolgozik, amikor a beérkező levelekből automatikusan ajánlatot generál.
+                A MIRA ebből az árjegyzékből veszi az ajánlati egységárakat és a költségadatokat.
             </p>
             <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-700">
-                <li>Vedd fel a saját munkafázisaidat és alapértelmezett áraidat.</li>
-                <li>Rendelj hozzájuk AI számítási szabályt (pl. vágási veszteség burkolásnál, vagy területről köbméter
-                    számítás).
-                </li>
-                <li>Mira ezen szabályok alapján fogja kiszámolni a pontos tételeket az ügyfelek leveleiből.</li>
+                <li>Válaszd ki, hogy az adott tétel anyag, munkadíj, kombinált vagy egyéb díj.</li>
+                <li>A nettó eladási egységárat add meg; a beszerzési és saját munkaköltség csak belső költségadat.</li>
+                <li>A kalkulációs beállításokat a MIRA kezeli, nem kell képleteket megadnod.</li>
             </ol>
         </section>
     );

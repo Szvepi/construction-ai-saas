@@ -1,179 +1,151 @@
 package com.buildassist.service;
 
-import com.buildassist.dto.AiDtos.*;
-import com.buildassist.model.CatalogItem;
+import com.buildassist.calculation.CalculationInput;
+import com.buildassist.calculation.CalculationOperation;
+import com.buildassist.calculation.CalculationPlan;
+import com.buildassist.calculation.CalculationResult;
+import com.buildassist.calculation.CalculationStatus;
+import com.buildassist.calculation.CalculationStep;
+import com.buildassist.calculation.ChargeComponent;
+import com.buildassist.calculation.DraftQuoteSnapshot;
+import com.buildassist.calculation.InputSource;
+import com.buildassist.calculation.Quantity;
+import com.buildassist.calculation.QuantityUnit;
+import com.buildassist.calculation.SettlementMode;
+import com.buildassist.calculation.WorkRecognitionStatus;
+import com.buildassist.dto.AiDtos.CoverageDecision;
+import com.buildassist.dto.AiDtos.CoverageStatus;
+import com.buildassist.dto.AiDtos.CoverageWorkItem;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QuoteCoverageServiceTest {
 
-    private QuoteCoverageService coverageService;
+    private QuoteCoverageService service;
 
     @BeforeEach
     void setUp() {
-        coverageService = new QuoteCoverageService(new ObjectMapper());
+        service = new QuoteCoverageService(new ObjectMapper());
     }
 
     @Test
-    void matchesDifferentNamesOnlyWhenAiProvidesAClearCatalogMatch() {
-        RequestedWork demolition = new RequestedWork("work-1", "Régi beton bontása",
-                "Kért bontási munka.", CoverageSource.EMAIL, null, null, 42L,
-                "Meglévő betonburkolat elbontása", "DIRECT");
-        DraftLineItem quoteLine = line("Meglévő betonburkolat elbontása", "line-1", 42L);
+    void coverageUsesStableWorkAndLineIdsRatherThanNameOrQuantityMatching() {
+        DraftQuoteSnapshot snapshot = snapshot(
+                List.of(work("work-sockets", "Konnektor szerelése", 20),
+                        work("work-switches", "Konnektor szerelése", 8)),
+                List.of(line("line-sockets", "work-sockets", 20, CalculationStatus.VALID),
+                        line("line-switches", "work-switches", 8, CalculationStatus.VALID)));
 
-        CoverageWorkItem result = coverageService.evaluate(List.of(demolition), List.of(), List.of(quoteLine)).get(0);
+        List<CoverageWorkItem> coverage = service.evaluate(snapshot, List.of());
 
-        assertEquals(CoverageStatus.INCLUDED, result.status());
-        assertEquals("line-1", result.linkedLineItemId());
-        assertFalse(result.userConfirmed());
+        assertEquals(2, coverage.size());
+        assertEquals("line-sockets", coverage.get(0).linkedLineItemId());
+        assertEquals(List.of("line-sockets"), coverage.get(0).linkedLineItemIds());
+        assertEquals(new BigDecimal("20"), coverage.get(0).quantity());
+        assertEquals("line-switches", coverage.get(1).linkedLineItemId());
+        assertEquals(new BigDecimal("8"), coverage.get(1).quantity());
+        assertEquals(CoverageStatus.INCLUDED, coverage.get(0).status());
+        assertEquals(CoverageStatus.INCLUDED, coverage.get(1).status());
     }
 
     @Test
-    void reportsMissingCandidateAndReviewsUncertainGeneralMatch() {
-        RequestedWork missing = work("work-1", "Konténer rendelése", 42L);
-        RequestedWork uncertain = work("work-2", "Járda térkövezése", null);
-        List<DraftLineItem> quoteLines = List.of(line("Térkövezés", "line-1", null));
+    void unmappedAndInvalidWorkRemainVisibleAndUnresolved() {
+        DraftQuoteSnapshot snapshot = snapshot(
+                List.of(
+                        new DraftQuoteSnapshot.QuoteWorkSnapshot(
+                                "work-unmapped", "Kábelhossz mérése", InputSource.CUSTOMER_EMAIL,
+                                null, null, SettlementMode.MATERIAL_AND_LABOR,
+                                WorkRecognitionStatus.UNMAPPED, null, "Kábelhossz mérése",
+                                "Nincs megfelelő katalógustétel.", true, List.of(), List.of()),
+                        work("work-invalid", "Festési felület", 40)),
+                List.of(line("line-invalid", "work-invalid", 40, CalculationStatus.INVALID)));
 
-        List<CoverageWorkItem> result = coverageService.evaluate(
-                List.of(missing, uncertain), List.of(), quoteLines);
+        List<CoverageWorkItem> coverage = service.evaluate(snapshot, List.of());
 
-        assertEquals(CoverageStatus.MISSING, result.get(0).status());
-        assertEquals(CoverageStatus.NEEDS_REVIEW, result.get(1).status());
+        assertEquals(CoverageStatus.MISSING, coverage.get(0).status());
+        assertEquals(CoverageStatus.NEEDS_REVIEW, coverage.get(1).status());
+        assertEquals(CalculationStatus.INVALID, coverage.get(1).calculationStatus());
+        var response = service.response(snapshot, List.of(), List.of(), List.of(), true, "fingerprint");
+        assertEquals(2, response.unresolvedIssues().size());
+        assertTrue(response.unresolvedIssues().get(1).contains("INVALID"));
     }
 
     @Test
-    void legacyDraftsStillSurfaceUnmappedRequestsForReview() {
-        List<RequestedWork> legacyWorks = coverageService.legacyRequestedWorks(
-                List.of("Sitt elszállítása"), 81L);
+    void decisionsCanOnlyLinkAValidLineDirectlyOwnedByTheWork() {
+        DraftQuoteSnapshot snapshot = snapshot(
+                List.of(work("work-a", "Konnektor", 20), work("work-b", "Kapcsoló", 8)),
+                List.of(line("line-a", "work-a", 20, CalculationStatus.VALID),
+                        line("line-b", "work-b", 8, CalculationStatus.VALID)));
 
-        assertEquals(CoverageStatus.NEEDS_REVIEW,
-                coverageService.evaluate(legacyWorks, List.of(), List.of()).get(0).status());
-        assertEquals(legacyWorks.get(0).workId(),
-                coverageService.legacyRequestedWorks(List.of("Sitt elszállítása"), 81L).get(0).workId());
+        assertThrows(IllegalArgumentException.class, () -> service.setDecision(
+                List.of(), "work-a", CoverageStatus.INCLUDED, "line-b", snapshot));
+        List<CoverageDecision> decisions = service.setDecision(
+                List.of(), "work-a", CoverageStatus.INCLUDED, "line-a", snapshot);
+        List<CoverageWorkItem> view = service.evaluate(snapshot, decisions);
+
+        assertEquals(CoverageStatus.INCLUDED, view.get(0).status());
+        assertTrue(view.get(0).userConfirmed());
+        assertEquals("line-a", view.get(0).linkedLineItemId());
     }
 
-    @Test
-    void doesNotTreatGenericCatalogRowsAsProofOfCoverage() {
-        RequestedWork request = new RequestedWork("work-1", "Konténer rendelése", "Kért munka.",
-                CoverageSource.EMAIL, null, null, 12L, "Általános kivitelezési munka", "DIRECT");
-        DraftLineItem genericQuoteLine = line("Általános kivitelezési munka", "line-1", 12L);
-
-        CoverageWorkItem result = coverageService.evaluate(
-                List.of(request), List.of(), List.of(genericQuoteLine)).get(0);
-
-        assertEquals(CoverageStatus.NEEDS_REVIEW, result.status());
+    private DraftQuoteSnapshot snapshot(
+            List<DraftQuoteSnapshot.QuoteWorkSnapshot> works,
+            List<DraftQuoteSnapshot.QuoteLineSnapshot> lines) {
+        return new DraftQuoteSnapshot(
+                DraftQuoteSnapshot.CURRENT_SCHEMA_VERSION,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                works, lines);
     }
 
-    @Test
-    void exactManualLineCanCoverWorkAndUserCanPersistExplicitDecisions() {
-        RequestedWork work = work("work-1", "Sitt elszállítása", null);
-        DraftLineItem line = line("Sitt elszállítása", "line-1", null);
-        List<CoverageDecision> decision = coverageService.setDecision(
-                List.of(), "work-1", CoverageStatus.INCLUDED, "line-1", List.of(line));
-
-        CoverageWorkItem explicit = coverageService.evaluate(List.of(work), decision, List.of(line)).get(0);
-        assertEquals(CoverageStatus.INCLUDED, explicit.status());
-        assertTrue(explicit.userConfirmed());
-
-        List<CoverageDecision> excluded = coverageService.setDecision(
-                decision, "work-1", CoverageStatus.EXCLUDED, null, List.of(line));
-        assertEquals(CoverageStatus.EXCLUDED,
-                coverageService.evaluate(List.of(work), excluded, List.of(line)).get(0).status());
-
-        List<CoverageDecision> deferred = coverageService.setDecision(
-                excluded, "work-1", CoverageStatus.NEEDS_REVIEW, null, List.of(line));
-        assertEquals(CoverageStatus.NEEDS_REVIEW,
-                coverageService.evaluate(List.of(work), deferred, List.of(line)).get(0).status());
+    private DraftQuoteSnapshot.QuoteWorkSnapshot work(String id, String description, int quantity) {
+        return new DraftQuoteSnapshot.QuoteWorkSnapshot(
+                id, description, InputSource.CUSTOMER_EMAIL,
+                new Quantity(BigDecimal.valueOf(quantity), QuantityUnit.EACH), "db",
+                SettlementMode.MATERIAL_AND_LABOR, WorkRecognitionStatus.MAPPED,
+                100L, description, description, true, List.of(), List.of());
     }
 
-    @Test
-    void invalidatesCoverageWhenLinkedLineIsDeletedOrMateriallyChanged() {
-        RequestedWork work = work("work-1", "Sitt elszállítása", null);
-        DraftLineItem original = line("Sitt elszállítása", "line-1", null);
-        List<CoverageDecision> decision = coverageService.setDecision(
-                List.of(), "work-1", CoverageStatus.INCLUDED, "line-1", List.of(original));
-
-        assertEquals(CoverageStatus.NEEDS_REVIEW,
-                coverageService.evaluate(List.of(work), decision, List.of()).get(0).status());
-        DraftLineItem changed = new DraftLineItem("Másik munka", "m3", BigDecimal.TEN,
-                BigDecimal.ZERO, BigDecimal.ZERO, "line-1", null);
-        assertEquals(CoverageStatus.NEEDS_REVIEW,
-                coverageService.evaluate(List.of(work), decision, List.of(changed)).get(0).status());
-    }
-
-    @Test
-    void identifiesSourceAndKeepsOnlyReliableQuantitiesFromAiData() {
-        CatalogItem catalog = new CatalogItem();
-        catalog.setId(7L);
-        catalog.setName("Járda térkövezése");
-        catalog.setUnit("m2");
-        AiExtractionResult extraction = new AiExtractionResult(
-                null, List.of(), List.of(), List.of(),
-                List.of(new AiRequestedWork("Járda térkövezése", "ADDITIONAL_INFO", 7L,
-                        BigDecimal.valueOf(15), "m2", "Telefonos egyeztetés.")));
-
-        RequestedWork result = coverageService.createRequestedWorks(extraction, List.of(catalog)).get(0);
-
-        assertEquals(CoverageSource.ADDITIONAL_INFO, result.source());
-        assertEquals(BigDecimal.valueOf(15), result.quantity());
-        assertEquals("m2", result.unit());
-        assertEquals(7L, result.suggestedCatalogItemId());
-    }
-
-    @Test
-    void honorsTenPercentMaterialWasteWithoutTreatingSeparateAreaAsCovered() {
-        CatalogItem pavingCatalog = new CatalogItem();
-        pavingCatalog.setId(9L);
-        pavingCatalog.setName("Térkő lerakás (munkadíj)");
-        pavingCatalog.setUnit("m2");
-        pavingCatalog.setCalculationStrategy(com.buildassist.model.CalculationStrategy.WASTE_PERCENTAGE_10);
-        List<RequestedWork> requests = List.of(
-                new RequestedWork("drive", "Kocsibeálló térkövezése", "Kért munka.",
-                        CoverageSource.EMAIL, BigDecimal.valueOf(45), "m2", 9L, pavingCatalog.getName(),
-                        pavingCatalog.getCalculationStrategy().name()),
-                new RequestedWork("walkway", "Járda térkövezése", "Kiegészítő információ.",
-                        CoverageSource.ADDITIONAL_INFO, BigDecimal.valueOf(15), "m2", 9L,
-                        pavingCatalog.getName(), pavingCatalog.getCalculationStrategy().name()));
-        DraftLineItem pavingLine = new DraftLineItem("Térkő lerakás (munkadíj)", "m2",
-                new BigDecimal("49.50"), BigDecimal.ZERO, BigDecimal.ZERO, "line-9", 9L);
-
-        List<CoverageWorkItem> result = coverageService.evaluate(requests, List.of(), List.of(pavingLine));
-
-        assertEquals(CoverageStatus.INCLUDED, result.get(0).status());
-        assertEquals(CoverageStatus.NEEDS_REVIEW, result.get(1).status());
-    }
-
-    @Test
-    void acknowledgesWarningsAndKeepsAnalysisFreshnessInTheGate() {
-        CoverageResponse fresh = coverageService.response(
-                List.of(), List.of(), List.of(), List.of("A mennyiség ellenőrizendő."),
-                List.of(), false);
-        CoverageWarning warning = fresh.warnings().get(0);
-        CoverageResponse acknowledged = coverageService.response(
-                List.of(), List.of(), List.of(), List.of("A mennyiség ellenőrizendő."),
-                List.of(warning.warningId()), true);
-
-        assertFalse(fresh.unresolvedIssues().isEmpty());
-        assertEquals(List.of(), acknowledged.unresolvedIssues());
-        assertNotEquals(coverageService.analysisFingerprint("email", "első jegyzet"),
-                coverageService.analysisFingerprint("email", "módosított jegyzet"));
-    }
-
-    private RequestedWork work(String id, String name, Long catalogId) {
-        return new RequestedWork(id, name, "Ellenőrizd a lefedettséget.", CoverageSource.EMAIL,
-                null, null, catalogId, null, null);
-    }
-
-    private DraftLineItem line(String name, String lineId, Long catalogId) {
-        return new DraftLineItem(name, "m2", BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, lineId, catalogId);
+    private DraftQuoteSnapshot.QuoteLineSnapshot line(
+            String lineId, String workId, int quantity, CalculationStatus status) {
+        Quantity measured = new Quantity(BigDecimal.valueOf(quantity), QuantityUnit.EACH);
+        CalculationResult result = status == CalculationStatus.VALID
+                ? new CalculationResult(status, measured, List.of(), List.of())
+                : new CalculationResult(status, null, List.of(), List.of());
+        List<DraftQuoteSnapshot.RequirementSnapshot> requirements =
+                List.of(new DraftQuoteSnapshot.RequirementSnapshot(
+                        "req-" + lineId, ChargeComponent.LABOR,
+                        status == CalculationStatus.VALID ? measured : null,
+                        null,
+                        status == CalculationStatus.VALID ? measured : null,
+                        new BigDecimal("100"), null));
+        return new DraftQuoteSnapshot.QuoteLineSnapshot(
+                lineId, workId, 100L,
+                new DraftQuoteSnapshot.CatalogItemSnapshot(
+                        "Konnektor szerelés", "db",
+                        com.buildassist.calculation.CatalogItemType.LABOR,
+                        new BigDecimal("500"), null, new BigDecimal("100"),
+                        com.buildassist.calculation.CatalogCalculationConfig.empty()),
+                SettlementMode.MATERIAL_AND_LABOR,
+                requirements,
+                new CalculationPlan(
+                        List.of(new CalculationInput(
+                                "count", BigDecimal.valueOf(quantity), "db", InputSource.CUSTOMER_EMAIL, true)),
+                        List.of(new CalculationStep(
+                                "result", CalculationOperation.DIRECT, List.of("count"), "db", null, null)),
+                        "result", List.of()),
+                result,
+                status == CalculationStatus.VALID ? measured : null,
+                null,
+                status == CalculationStatus.VALID ? measured : null,
+                null, false, null, "Direct customer request.",
+                status == CalculationStatus.VALID ? BigDecimal.valueOf(quantity * 500L) : null,
+                true, null, List.of());
     }
 }

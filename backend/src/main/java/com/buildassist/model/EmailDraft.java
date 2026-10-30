@@ -1,12 +1,9 @@
 package com.buildassist.model;
 
-import com.buildassist.dto.AiDtos;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.Instant;
-import java.util.List;
 
 @Data
 @Entity
@@ -75,40 +72,6 @@ public class EmailDraft {
     @Column(name = "analysis_fingerprint", length = 64)
     private String analysisFingerprint;
 
-    public List<AiDtos.DraftLineItem> getLineItems() {
-        if (this.lineItemsJson == null || this.lineItemsJson.isBlank()) {
-            return List.of();
-        }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(this.lineItemsJson,
-                    mapper.getTypeFactory().constructCollectionType(List.class, AiDtos.DraftLineItem.class));
-        } catch (Exception ex) {
-            return List.of();
-        }
-    }
-
-    public List<String> getReviewWarnings() {
-        if (this.reviewWarningsJson == null || this.reviewWarningsJson.isBlank()) {
-            return List.of();
-        }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(this.reviewWarningsJson, mapper.getTypeFactory().constructCollectionType(List.class, String.class));
-        } catch (Exception ex) {
-            return List.of();
-        }
-    }
-
-    public List<String> getUnmappedRequests() {
-        if (this.unmappedRequestsJson == null || this.unmappedRequestsJson.isBlank()) {
-            return List.of();
-        }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(this.unmappedRequestsJson, mapper.getTypeFactory().constructCollectionType(List.class, String.class));
-        } catch (Exception ex) {
-            return List.of();
-        }
-    }
+    @Column(name = "quote_snapshot", columnDefinition = "TEXT")
+    private String quoteSnapshotJson;
 }

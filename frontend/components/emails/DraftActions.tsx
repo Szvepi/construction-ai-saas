@@ -11,8 +11,6 @@ type Props = {
     gmailDraftCreated: boolean;
     saveSuccess: string | null;
     total: number;
-    net: number;
-    vat: number;
     vatRegistered: boolean;
     onSave: () => void;
     onPreview: () => void;
@@ -27,8 +25,6 @@ export function DraftActions({
     gmailDraftCreated,
     saveSuccess,
     total,
-    net,
-    vat,
     vatRegistered,
     onSave,
     onPreview,
@@ -54,7 +50,7 @@ export function DraftActions({
                     )}
                 </div>
                 <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between xl:justify-end">
-                    {draftId && <QuoteSummary total={total} net={net} vat={vat} vatRegistered={vatRegistered}/>}
+                    {draftId && <QuoteSummary total={total} vatRegistered={vatRegistered}/>}
                     <div className="flex flex-wrap gap-2 sm:justify-end">
                         <Button onClick={onSave} disabled={!draftId || busy} className="w-full sm:w-auto">
                             {busyAction === "save" ? "Mentés…" : "Mentés"}
@@ -62,7 +58,7 @@ export function DraftActions({
                         <Button
                             variant="secondary"
                             onClick={onPreview}
-                            disabled={!draftId || lineItemCount === 0 || busy}
+                            disabled={!draftId || lineItemCount === 0 || busy || vatRegistered}
                             className="w-full sm:w-auto"
                         >
                             {busyAction === "preview" ? "PDF-előnézet készül…" : "PDF-előnézet"}
@@ -70,7 +66,7 @@ export function DraftActions({
                         <Button
                             variant="secondary"
                             onClick={onCreateGmailDraft}
-                            disabled={!draftId || busy || gmailDraftCreated}
+                            disabled={!draftId || busy || gmailDraftCreated || vatRegistered}
                             className="w-full sm:w-auto"
                         >
                             {busyAction === "finalize"

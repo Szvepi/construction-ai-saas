@@ -1,10 +1,13 @@
 package com.buildassist.repository;
 
+import com.buildassist.calculation.DraftQuoteSnapshot;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.model.EmailDraft;
 import com.buildassist.model.GmailConnection;
 import com.buildassist.model.User;
+import com.buildassist.service.DraftQuoteSnapshotCodec;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.time.Instant;
@@ -20,6 +23,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataJpaTest
@@ -164,13 +168,11 @@ class EmailSearchRepositoryIntegrationTest {
         EmailDraft original = new EmailDraft();
         original.setEmail(email);
         original.setDraftBody("Saved quote");
-        original.setLineItemsJson("[{\"name\":\"Sitt elszállítása\",\"unit\":\"m3\","
-                + "\"quantity\":1,\"unitPrice\":0,\"subtotal\":0,\"lineItemId\":\"line-1\","
-                + "\"catalogItemId\":null}]");
-        original.setRequestedWorkItemsJson("[{\"workId\":\"work-1\",\"name\":\"Sitt elszállítása\","
-                + "\"explanation\":\"Kért munka.\",\"source\":\"EMAIL\",\"quantity\":null,"
-                + "\"unit\":null,\"suggestedCatalogItemId\":null,\"suggestedCatalogItemName\":null,"
-                + "\"suggestedCalculationStrategy\":null}]");
+        DraftQuoteSnapshotCodec snapshotCodec =
+                new DraftQuoteSnapshotCodec(new ObjectMapper().findAndRegisterModules());
+        DraftQuoteSnapshot snapshot = snapshotCodec.seal(new DraftQuoteSnapshot(
+                DraftQuoteSnapshot.CURRENT_SCHEMA_VERSION, null, List.of(), List.of()));
+        original.setQuoteSnapshotJson(snapshotCodec.encode(snapshot));
         original.setCoverageDecisionsJson("[{\"issueId\":\"work-1\",\"status\":\"INCLUDED\","
                 + "\"lineItemId\":\"line-1\",\"lineItemFingerprint\":\"fingerprint\","
                 + "\"userConfirmed\":true}]");
@@ -192,7 +194,8 @@ class EmailSearchRepositoryIntegrationTest {
                 restored.getCoverageDecisionsJson());
         assertEquals("[\"warning-accepted-zero-price\"]", restored.getAcknowledgedWarningsJson());
         assertEquals("0123456789abcdef", restored.getAnalysisFingerprint());
-        assertEquals("Sitt elszállítása", restored.getLineItems().getFirst().name());
+        assertEquals(snapshot, snapshotCodec.decode(restored.getQuoteSnapshotJson()));
+        assertNull(restored.getLineItemsJson());
         assertEquals(originalId, savedOriginal.getId());
         assertTrue(savedReanalysis.getId() > originalId);
     }

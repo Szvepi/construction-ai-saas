@@ -22,6 +22,103 @@ export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: Genera
 
 export type GmailStatus = { connected: boolean; gmailAddress: string | null };
 
+export type CalculationStatus = "VALID" | "NEEDS_INPUT" | "NEEDS_REVIEW" | "INVALID";
+export type WorkRecognitionStatus = "MAPPED" | "PARTIALLY_MAPPED" | "UNMAPPED" | "NEEDS_REVIEW";
+export type CalculationInputSource =
+  | "CUSTOMER_EMAIL"
+  | "CUSTOMER_SUPPLEMENT"
+  | "CATALOG_DEFAULT"
+  | "CONTRACTOR_PROFILE"
+  | "AI_ASSUMPTION"
+  | "USER_OVERRIDE";
+
+export type SnapshotQuantity = {value: number; unit: string};
+
+export type DraftQuoteSnapshot = {
+  schemaVersion: number;
+  fingerprint: string;
+  workItems: {
+    workId: string;
+    originalRequest: string;
+    source: CalculationInputSource;
+    sourceEvidence: string | null;
+    customerRequestedQuantity: SnapshotQuantity | null;
+    customerRequestedUnit: string | null;
+    settlementMode: "MATERIAL_AND_LABOR" | "LABOR_ONLY" | "CUSTOMER_SUPPLIED_MATERIAL";
+    recognitionStatus: WorkRecognitionStatus;
+    suggestedCatalogItemId: number | null;
+    explanation: string | null;
+    explicitlyRequested: boolean;
+    assumptions: string[];
+    missingParameters: string[];
+    unmappedLines: {explanation: string | null; reason: string; assumptions: string[]}[];
+  }[];
+  lineItems: {
+    lineItemId: string;
+    workId: string;
+    catalogItemId: number | null;
+    catalogItem: {
+      name: string;
+      unit: string;
+      itemType: CatalogItemType;
+      netSellingUnitPrice: number;
+      netProcurementUnitCost: number | null;
+      estimatedOwnLaborUnitCost: number | null;
+      calculationConfig: CatalogCalculationConfig | null;
+    } | null;
+    settlementMode: "MATERIAL_AND_LABOR" | "LABOR_ONLY" | "CUSTOMER_SUPPLIED_MATERIAL";
+    requirements: {
+      requirementId: string;
+      component: "MATERIAL" | "LABOR" | "OTHER";
+      requiredQuantity: SnapshotQuantity | null;
+      allowanceAdjustedQuantity: SnapshotQuantity | null;
+      procurementQuantity: SnapshotQuantity | null;
+      customerChargeQuantity: SnapshotQuantity | null;
+      netUnitCost: number | null;
+      directCost: number | null;
+    }[];
+    calculationPlan: {
+      inputs: {
+        id: string | null;
+        value: number | null;
+        unit: string | null;
+        source: CalculationInputSource;
+        approved: boolean;
+        evidence: string | null;
+      }[];
+      steps: {
+        id: string | null;
+        operation: string | null;
+        operands: string[] | null;
+        outputUnit: string | null;
+        scale: number | null;
+        roundingMode: string | null;
+      }[];
+      outputReference: string | null;
+      reviewReasons: string[];
+    } | null;
+    calculationResult: {
+      status: CalculationStatus;
+      quantity: SnapshotQuantity | null;
+      issues: {code: string; message: string; reference: string | null}[];
+      trace: {stepId: string; operation: string; operands: string[]; result: SnapshotQuantity}[];
+    };
+    requiredQuantity: SnapshotQuantity | null;
+    procurementQuantity: SnapshotQuantity | null;
+    customerChargeQuantity: SnapshotQuantity | null;
+    userOverrideQuantity: SnapshotQuantity | null;
+    assumptionsApproved: boolean;
+    approvedFingerprint: string | null;
+    explanation: string | null;
+    netLineTotal: number | null;
+    chargeable: boolean;
+    procurementPackageCount: SnapshotQuantity | null;
+    assumptions: string[];
+    procurementOutputReference: string | null;
+    procurementPackageCountReference: string | null;
+  }[];
+};
+
 export type GenerateDraftResponse = {
   draftId: number;
   draftBody: string;
@@ -36,6 +133,9 @@ export type GenerateDraftResponse = {
   coverageWarnings?: CoverageWarning[];
   analysisFresh?: boolean;
   gmailDraftCreated?: boolean;
+  quoteSnapshot?: DraftQuoteSnapshot | null;
+  calculationStatus?: CalculationStatus;
+  netQuotePrice?: number | null;
 };
 
 export type DraftLineItem = {
@@ -46,6 +146,7 @@ export type DraftLineItem = {
   subtotal: number;
   lineItemId?: string;
   catalogItemId?: number | null;
+  priceBasis: "NET";
 };
 
 export type AnalysisResponse = {
@@ -60,6 +161,9 @@ export type AnalysisResponse = {
   coverageItems: CoverageWorkItem[];
   coverageWarnings: CoverageWarning[];
   analysisFresh: boolean;
+  quoteSnapshot?: DraftQuoteSnapshot | null;
+  calculationStatus?: CalculationStatus;
+  netQuotePrice?: number | null;
 };
 
 export type CoverageStatus = "INCLUDED" | "NEEDS_REVIEW" | "MISSING" | "EXCLUDED";
@@ -74,6 +178,9 @@ export type CoverageWorkItem = {
   status: CoverageStatus;
   linkedLineItemId: string | null;
   userConfirmed: boolean;
+  linkedLineItemIds?: string[];
+  recognitionStatus?: WorkRecognitionStatus;
+  calculationStatus?: CalculationStatus | null;
 };
 
 export type CoverageWarning = {
@@ -106,19 +213,30 @@ export type SaveDraftRequest = {
   includeAdditionalNotes?: boolean;
 };
 
-export type CalculationStrategy =
-  | "DIRECT"
-  | "WALL_SURFACE_3X"
-  | "ROOM_PERIMETER"
-  | "VOLUME_BY_THICKNESS"
-  | "WASTE_PERCENTAGE_10";
+export type CatalogItemType = "MATERIAL" | "LABOR" | "COMBINED" | "OTHER";
+
+export type CatalogCalculationConfig = {
+  allowedCalculations: string[];
+  defaultParameters: Record<string, {value: number; unit: string; source: string}>;
+  parameterConstraints: Record<string, {
+    unit: string;
+    required: boolean;
+    minimum: number | null;
+    maximum: number | null;
+  }>;
+  materialAllowancePercent: number | null;
+  roundingPolicy: {scale: number; mode: string} | null;
+};
 
 export type CatalogItem = {
   id: number;
   name: string;
-  unitPrice: number;
+  netSellingUnitPrice: number;
   unit: string;
-  calculationStrategy: CalculationStrategy | null;
+  itemType: CatalogItemType;
+  netProcurementUnitCost: number | null;
+  estimatedOwnLaborUnitCost: number | null;
+  calculationConfig: CatalogCalculationConfig | null;
   createdAt: string;
 };
 
@@ -144,11 +262,3 @@ export type CompanyProfile = {
 };
 
 export type SaveCompanyProfileRequest = Omit<CompanyProfile, "country">;
-
-export const STRATEGY_DESCRIPTIONS: Record<CalculationStrategy, string> = {
-  DIRECT: "Nincs módosítás (pl. darabszám, közvetlen m2)",
-  WALL_SURFACE_3X: "Falfelület becslés (alapterület x 3 - Festőknek)",
-  ROOM_PERIMETER: "Szoba kerület számítás (Lábazat, szegélyléc)",
-  VOLUME_BY_THICKNESS: "Köbméter számítás területből (Kőműves alapozás)",
-  WASTE_PERCENTAGE_10: "+10% Anyagveszteség számolás (Burkolóknak)",
-};

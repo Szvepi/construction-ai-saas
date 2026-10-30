@@ -1,4 +1,3 @@
-import {useEffect, useState} from "react";
 import type {CoverageStatus, CoverageWarning, CoverageWorkItem, DraftLineItem} from "@/lib/types";
 import {Button} from "@/components/ui/Button";
 
@@ -18,7 +17,6 @@ type Props = {
     onClientNameChange: (value: string) => void;
     onAdditionalNotesChange: (value: string) => void;
     onIncludeAdditionalNotesChange: (value: boolean) => void;
-    onAddWork: (work: CoverageWorkItem) => void;
     onSetWorkDecision: (workId: string, status: CoverageStatus, lineItemId?: string) => void;
     onAcknowledgeWarning: (warningId: string, acknowledged: boolean) => void;
 };
@@ -43,18 +41,12 @@ export function DraftAnalysisPanel({
                                        onClientNameChange,
                                        onAdditionalNotesChange,
                                        onIncludeAdditionalNotesChange,
-                                       onAddWork,
                                        onSetWorkDecision,
                                        onAcknowledgeWarning,
-                                   }: Props) {
-    const [selectedLineItem, setSelectedLineItem] = useState<Record<string, string>>({});
-    const notesId = `additional-notes-${emailId}`;
-    const includeNotesId = `include-additional-notes-${emailId}`;
-    const clientNameId = `client-name-${emailId}`;
-
-    useEffect(() => {
-        setSelectedLineItem({});
-    }, [draftId]);
+                                                                      }: Props) {
+                                       const notesId = `additional-notes-${emailId}`;
+                                       const includeNotesId = `include-additional-notes-${emailId}`;
+                                       const clientNameId = `client-name-${emailId}`;
 
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
@@ -152,10 +144,9 @@ export function DraftAnalysisPanel({
                                         : work.status === "EXCLUDED"
                                             ? "Tudatosan kihagyva"
                                             : "Ellenőrzést igényel";
-                                const preferredLineId = selectedLineItem[work.workId];
-                                const selected = preferredLineId && lineItems.some((item) => item.lineItemId === preferredLineId)
-                                    ? preferredLineId
-                                    : work.linkedLineItemId ?? "";
+                                const linkedNames = (work.linkedLineItemIds ?? [])
+                                    .map((lineId) => lineItems.find((item) => item.lineItemId === lineId)?.name)
+                                    .filter((name): name is string => Boolean(name));
                                 return (
                                     <li key={work.workId} className="rounded-lg border border-amber-100 bg-white p-3">
                                         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -168,6 +159,20 @@ export function DraftAnalysisPanel({
                                                         ? ` · Felismert mennyiség: ${work.quantity} ${work.unit}`
                                                         : ""}
                                                 </p>
+                                                {linkedNames.length > 0 && (
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        Kapcsolódó sorok: {linkedNames.join(", ")}
+                                                    </p>
+                                                )}
+                                                {work.calculationStatus && work.calculationStatus !== "VALID" && (
+                                                    <p className="mt-1 text-xs font-medium text-amber-800">
+                                                        Kalkuláció: {work.calculationStatus === "INVALID"
+                                                            ? "érvénytelen bemenet vagy művelet"
+                                                            : work.calculationStatus === "NEEDS_INPUT"
+                                                                ? "hiányzó adat"
+                                                                : "feltételezés ellenőrzése szükséges"}
+                                                    </p>
+                                                )}
                                             </div>
                                             <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
                                                 work.status === "INCLUDED"
@@ -181,53 +186,22 @@ export function DraftAnalysisPanel({
                                         </div>
                                         {work.status !== "EXCLUDED" && (
                                             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                                                {work.status === "INCLUDED" && !work.userConfirmed && selected && (
+                                                {work.status === "INCLUDED" && !work.userConfirmed
+                                                    && work.linkedLineItemId && (
                                                     <Button
                                                         type="button"
                                                         variant="secondary"
                                                         disabled={busy}
-                                                        onClick={() => onSetWorkDecision(work.workId, "INCLUDED", selected)}
+                                                        onClick={() => onSetWorkDecision(
+                                                            work.workId, "INCLUDED", work.linkedLineItemId ?? undefined)}
                                                     >
                                                         Megerősítem a lefedettséget
                                                     </Button>
                                                 )}
-                                                <Button type="button" variant="secondary" disabled={busy}
-                                                        onClick={() => onAddWork(work)}>
-                                                    Hozzáadás az ajánlathoz
-                                                </Button>
-                                                {lineItems.length > 0 && (
-                                                    <>
-                                                        <label className="sr-only"
-                                                               htmlFor={`coverage-line-${work.workId}`}>
-                                                            Melyik ajánlati sor tartalmazza: {work.name}
-                                                        </label>
-                                                        <select
-                                                            id={`coverage-line-${work.workId}`}
-                                                            value={selected}
-                                                            disabled={busy}
-                                                            onChange={(event) => setSelectedLineItem((current) => ({
-                                                                ...current,
-                                                                [work.workId]: event.target.value,
-                                                            }))}
-                                                            className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-brand-300 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
-                                                        >
-                                                            <option value="">Válassz ajánlati sort</option>
-                                                            {lineItems.map((item) => (
-                                                                <option key={item.lineItemId ?? item.name}
-                                                                        value={item.lineItemId ?? ""}>
-                                                                    {item.name}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        <Button
-                                                            type="button"
-                                                            variant="secondary"
-                                                            disabled={busy || !selected}
-                                                            onClick={() => onSetWorkDecision(work.workId, "INCLUDED", selected)}
-                                                        >
-                                                            Másik tétel tartalmazza
-                                                        </Button>
-                                                    </>
+                                                {work.status === "MISSING" && (
+                                                    <p className="self-center text-xs text-amber-900">
+                                                        Adj hozzá megfelelő katalógustételt, majd indíts új elemzést.
+                                                    </p>
                                                 )}
                                                 <Button
                                                     type="button"

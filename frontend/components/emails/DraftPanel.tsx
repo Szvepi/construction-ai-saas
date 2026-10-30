@@ -32,17 +32,6 @@ type DraftFields = {
     lineItems: DraftLineItem[];
 };
 
-function makeRow(name = "", unit = "m2", quantity = 1, unitPrice = 0): DraftLineItem {
-    return {
-        name,
-        unit,
-        quantity,
-        unitPrice,
-        subtotal: Math.round(quantity * unitPrice),
-        lineItemId: crypto.randomUUID(),
-    };
-}
-
 function snapshot(fields: DraftFields): string {
     return JSON.stringify(fields);
 }
@@ -51,7 +40,6 @@ function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLin
     return (items ?? []).map((item) => ({
         ...item,
         subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
-        lineItemId: item.lineItemId || crypto.randomUUID(),
     }));
 }
 
@@ -178,13 +166,6 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         () => lineItems.reduce((sum, item) => sum + item.subtotal, 0),
         [lineItems],
     );
-    const vatTotals = useMemo(() => lineItems.reduce((totals, item) => {
-        const net = Math.round(item.subtotal / 1.27);
-        totals.net += net;
-        totals.vat += item.subtotal - net;
-        return totals;
-    }, {net: 0, vat: 0}), [lineItems]);
-
     const isQuoteRequest = email?.category === "QUOTE_REQUEST";
 
     async function analyze() {
@@ -283,11 +264,10 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         }
     }
 
-    function updateLineItem(index: number, field: keyof DraftLineItem, value: string | number) {
+    function updateLineItem(index: number, value: string | number) {
         setPreviewGenerated(false);
         const currentItem = lineItems[index];
-        if (currentItem && ["name", "unit", "quantity"].includes(field)
-            && String(currentItem[field] ?? "") !== String(value)) {
+        if (currentItem && String(currentItem.quantity ?? "") !== String(value)) {
             setCoverageItems((current) => current.map((work) =>
                 work.status === "INCLUDED" && work.linkedLineItemId === currentItem.lineItemId
                     ? {...work, status: "NEEDS_REVIEW", linkedLineItemId: null, userConfirmed: false}
@@ -296,38 +276,11 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         setLineItems((current) => {
             const next = [...current];
             const row = {...next[index]};
-
-            if (field === "quantity" || field === "unitPrice" || field === "subtotal") {
-                const numericValue = Number(value) || 0;
-                row[field] = numericValue as never;
-            } else {
-                row[field] = String(value) as never;
-            }
-
-            if (field === "quantity" || field === "unitPrice") {
-                row.subtotal = Math.round(Number(row.quantity ?? 0) * Number(row.unitPrice ?? 0));
-            }
-
+            row.quantity = Number(value) || 0;
+            row.subtotal = Math.round(Number(row.quantity) * Number(row.unitPrice ?? 0));
             next[index] = row;
             return next;
         });
-    }
-
-    function addCustomRow(name = "Egyedi tétel", unit = "db") {
-        setPreviewGenerated(false);
-        setLineItems((current) => [...current, makeRow(name, unit, 1, 0)]);
-    }
-
-    function removeLineItem(index: number) {
-        setPreviewGenerated(false);
-        const removed = lineItems[index];
-        if (removed) {
-            setCoverageItems((current) => current.map((work) =>
-                work.status === "INCLUDED" && work.linkedLineItemId === removed.lineItemId
-                    ? {...work, status: "NEEDS_REVIEW", linkedLineItemId: null, userConfirmed: false}
-                    : work));
-        }
-        setLineItems((current) => current.filter((_, i) => i !== index));
     }
 
     async function saveCoverageDecision(
@@ -357,13 +310,6 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         } finally {
             setBusyAction(null);
         }
-    }
-
-    function addCoverageWork(work: CoverageWorkItem) {
-        const item = makeRow(work.name, work.unit ?? "", work.quantity ?? 0, 0);
-        const items = [...lineItems, item];
-        setLineItems(items);
-        void saveCoverageDecision(work.workId, "INCLUDED", item.lineItemId, items);
     }
 
     async function preview(): Promise<boolean> {
@@ -511,7 +457,6 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                     setPreviewGenerated(false);
                     setIncludeAdditionalNotes(value);
                 }}
-                onAddWork={addCoverageWork}
                 onSetWorkDecision={(workId, status, lineItemId) => {
                     void saveCoverageDecision(workId, status, lineItemId);
                 }}
@@ -527,11 +472,8 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 <>
                     <QuoteLineItemsEditor
                         lineItems={lineItems}
-                        vatRegistered={vatRegistered}
                         busy={busyAction !== null}
-                        onUpdate={updateLineItem}
-                        onAdd={() => addCustomRow()}
-                        onRemove={removeLineItem}
+                        onUpdate={(_index, _field, value) => updateLineItem(_index, value)}
                     />
                     <DraftActions
                         draftId={draftId}
@@ -541,8 +483,6 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                         gmailDraftCreated={gmailDraftCreated}
                         saveSuccess={saveSuccess}
                         total={total}
-                        net={vatTotals.net}
-                        vat={vatTotals.vat}
                         vatRegistered={vatRegistered}
                         onSave={save}
                         onPreview={preview}
