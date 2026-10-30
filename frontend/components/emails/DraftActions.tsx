@@ -10,8 +10,12 @@ type Props = {
     isDirty: boolean;
     gmailDraftCreated: boolean;
     saveSuccess: string | null;
-    total: number;
-    vatRegistered: boolean;
+    total: number | null;
+    taxRegime: "AAM" | "VAT_REGISTERED" | "REVERSE_CHARGE_UNSUPPORTED";
+    vatRate: number | null;
+    vatAmount: number | null;
+    grossTotal: number | null;
+    taxConfigurationValid: boolean;
     onSave: () => void;
     onPreview: () => void;
     onCreateGmailDraft: () => void;
@@ -25,7 +29,11 @@ export function DraftActions({
     gmailDraftCreated,
     saveSuccess,
     total,
-    vatRegistered,
+    taxRegime,
+    vatRate,
+    vatAmount,
+    grossTotal,
+    taxConfigurationValid,
     onSave,
     onPreview,
     onCreateGmailDraft,
@@ -50,7 +58,15 @@ export function DraftActions({
                     )}
                 </div>
                 <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between xl:justify-end">
-                    {draftId && <QuoteSummary total={total} vatRegistered={vatRegistered}/>}
+                    {draftId && <QuoteSummary
+                        netTotal={total}
+                        taxRegime={taxRegime}
+                        vatRate={vatRate}
+                        vatAmount={vatAmount}
+                        grossTotal={grossTotal}
+                        taxConfigurationValid={taxConfigurationValid}
+                        stale={isDirty}
+                    />}
                     <div className="flex flex-wrap gap-2 sm:justify-end">
                         <Button onClick={onSave} disabled={!draftId || busy} className="w-full sm:w-auto">
                             {busyAction === "save" ? "Mentés…" : "Mentés"}
@@ -58,7 +74,7 @@ export function DraftActions({
                         <Button
                             variant="secondary"
                             onClick={onPreview}
-                            disabled={!draftId || lineItemCount === 0 || busy || vatRegistered}
+                            disabled={!draftId || lineItemCount === 0 || busy || !taxConfigurationValid}
                             className="w-full sm:w-auto"
                         >
                             {busyAction === "preview" ? "PDF-előnézet készül…" : "PDF-előnézet"}
@@ -66,7 +82,7 @@ export function DraftActions({
                         <Button
                             variant="secondary"
                             onClick={onCreateGmailDraft}
-                            disabled={!draftId || busy || gmailDraftCreated || vatRegistered}
+                            disabled={!draftId || busy || gmailDraftCreated || !taxConfigurationValid}
                             className="w-full sm:w-auto"
                         >
                             {busyAction === "finalize"

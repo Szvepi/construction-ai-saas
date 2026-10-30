@@ -20,16 +20,56 @@ public final class AiDtos {
             BigDecimal subtotal,
             String lineItemId,
             Long catalogItemId,
-            String priceBasis
+            String priceBasis,
+            boolean priceOverridden,
+            String priceOverrideReason,
+            BigDecimal catalogUnitPrice,
+            boolean assumptionsApproved,
+            List<CalculationParameter> calculationParameters,
+            boolean userOverrideLine,
+            com.buildassist.calculation.CatalogItemType itemType
     ) {
+        public DraftLineItem {
+            calculationParameters = calculationParameters == null
+                    ? List.of() : List.copyOf(calculationParameters);
+        }
+
         public DraftLineItem(
                 String name, String unit, BigDecimal quantity, BigDecimal unitPrice,
                 BigDecimal subtotal, String lineItemId, Long catalogItemId) {
-            this(name, unit, quantity, unitPrice, subtotal, lineItemId, catalogItemId, "NET");
+            this(name, unit, quantity, unitPrice, subtotal, lineItemId, catalogItemId,
+                    "NET", false, null, unitPrice, false, List.of(), false, null);
         }
 
         public DraftLineItem(String name, String unit, BigDecimal quantity, BigDecimal unitPrice, BigDecimal subtotal) {
-            this(name, unit, quantity, unitPrice, subtotal, null, null, "NET");
+            this(name, unit, quantity, unitPrice, subtotal, null, null,
+                    "NET", false, null, unitPrice, false, List.of(), false, null);
+        }
+
+        public DraftLineItem(
+                String name, String unit, BigDecimal quantity, BigDecimal unitPrice, BigDecimal subtotal,
+                String lineItemId, Long catalogItemId, String priceBasis,
+                boolean priceOverridden, String priceOverrideReason) {
+            this(name, unit, quantity, unitPrice, subtotal, lineItemId, catalogItemId,
+                    priceBasis, priceOverridden, priceOverrideReason, unitPrice, false, List.of(), false, null);
+        }
+
+        public DraftLineItem(
+                String name, String unit, BigDecimal quantity, BigDecimal unitPrice,
+                BigDecimal subtotal, String lineItemId, Long catalogItemId, String priceBasis,
+                boolean priceOverridden, String priceOverrideReason, BigDecimal catalogUnitPrice,
+                boolean assumptionsApproved, List<CalculationParameter> calculationParameters) {
+            this(name, unit, quantity, unitPrice, subtotal, lineItemId, catalogItemId, priceBasis,
+                    priceOverridden, priceOverrideReason, catalogUnitPrice, assumptionsApproved,
+                    calculationParameters, false, null);
+        }
+    }
+
+    public record CalculationParameter(
+            String id, BigDecimal value, String unit, String source, boolean approved, boolean rejected) {
+        public CalculationParameter(
+                String id, BigDecimal value, String unit, String source, boolean approved) {
+            this(id, value, unit, source, approved, false);
         }
     }
 

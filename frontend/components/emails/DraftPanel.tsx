@@ -8,7 +8,9 @@ import type {
     CoverageStatus,
     CoverageWarning,
     CoverageWorkItem,
+    CatalogItem,
     DraftLineItem,
+    DraftQuoteSnapshot,
     EmailDetail,
     GenerateDraftResponse
 } from "@/lib/types";
@@ -37,10 +39,7 @@ function snapshot(fields: DraftFields): string {
 }
 
 function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLineItem[] {
-    return (items ?? []).map((item) => ({
-        ...item,
-        subtotal: Math.round(Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0)),
-    }));
+    return (items ?? []).map((item) => ({...item}));
 }
 
 export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewChange}: Props) {
@@ -49,6 +48,15 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     const [additionalNotes, setAdditionalNotes] = useState("");
     const [includeAdditionalNotes, setIncludeAdditionalNotes] = useState(true);
     const [vatRegistered, setVatRegistered] = useState(false);
+    const [taxRegime, setTaxRegime] = useState<GenerateDraftResponse["taxRegime"]>("AAM");
+    const [vatRate, setVatRate] = useState<number | null>(null);
+    const [vatAmount, setVatAmount] = useState<number | null>(null);
+    const [grossTotal, setGrossTotal] = useState<number | null>(null);
+    const [taxConfigurationValid, setTaxConfigurationValid] = useState(true);
+    const [draftVersion, setDraftVersion] = useState<number | null>(null);
+    const [quoteSnapshot, setQuoteSnapshot] = useState<DraftQuoteSnapshot | null>(null);
+    const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+    const [netQuotePrice, setNetQuotePrice] = useState<number | null>(null);
     const [reviewWarnings, setReviewWarnings] = useState<string[]>([]);
     const [coverageItems, setCoverageItems] = useState<CoverageWorkItem[]>([]);
     const [coverageWarnings, setCoverageWarnings] = useState<CoverageWarning[]>([]);
@@ -61,6 +69,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     const [pdfUrl, setPdfUrl] = useState<string | null>(null);
     const [busyAction, setBusyAction] = useState<DraftAction>(null);
     const [error, setError] = useState<string | null>(null);
+    const [versionConflict, setVersionConflict] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const [previewGenerated, setPreviewGenerated] = useState(false);
     const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
@@ -76,6 +85,22 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     useEffect(() => {
         onDirtyChange?.(isDirty);
     }, [isDirty, onDirtyChange]);
+
+    useEffect(() => {
+        let active = true;
+        if (!draftId) {
+            setCatalogItems([]);
+            return () => { active = false; };
+        }
+        apiFetch<CatalogItem[]>("/api/catalog")
+            .then((items) => {
+                if (active) setCatalogItems(items);
+            })
+            .catch((err) => {
+                if (active) setError(err instanceof ApiError ? err.message : "A katalógus betöltése sikertelen.");
+            });
+        return () => { active = false; };
+    }, [draftId]);
 
     useEffect(() => {
         let active = true;
@@ -97,6 +122,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setAdditionalNotes(initialFields.additionalNotes);
             setIncludeAdditionalNotes(initialFields.includeAdditionalNotes);
             setVatRegistered(currentEmail.draftEmail.vatRegistered ?? false);
+            setTaxRegime(currentEmail.draftEmail.taxRegime ?? "AAM");
+            setVatRate(currentEmail.draftEmail.vatRate ?? null);
+            setVatAmount(currentEmail.draftEmail.vatAmount ?? null);
+            setGrossTotal(currentEmail.draftEmail.grossQuotePrice ?? null);
+            setTaxConfigurationValid(currentEmail.draftEmail.taxConfigurationValid ?? true);
+            setDraftVersion(currentEmail.draftEmail.draftVersion ?? null);
+            setQuoteSnapshot(currentEmail.draftEmail.quoteSnapshot ?? null);
+            setNetQuotePrice(currentEmail.draftEmail.netQuotePrice ?? null);
             setReviewWarnings(currentEmail.draftEmail.reviewWarnings ?? []);
             setCoverageItems(currentEmail.draftEmail.coverageItems ?? []);
             setCoverageWarnings(currentEmail.draftEmail.coverageWarnings ?? []);
@@ -135,6 +168,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setAdditionalNotes(emptyFields.additionalNotes);
             setIncludeAdditionalNotes(emptyFields.includeAdditionalNotes);
             setVatRegistered(false);
+            setTaxRegime("AAM");
+            setVatRate(null);
+            setVatAmount(null);
+            setGrossTotal(null);
+            setTaxConfigurationValid(true);
+            setDraftVersion(null);
+            setQuoteSnapshot(null);
+            setNetQuotePrice(null);
             setReviewWarnings([]);
             setCoverageItems([]);
             setCoverageWarnings([]);
@@ -163,8 +204,8 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     }, [body, draftId, onPdfPreviewChange, pdfUrl, previewGenerated]);
 
     const total = useMemo(
-        () => lineItems.reduce((sum, item) => sum + item.subtotal, 0),
-        [lineItems],
+        () => netQuotePrice,
+        [netQuotePrice],
     );
     const isQuoteRequest = email?.category === "QUOTE_REQUEST";
 
@@ -191,6 +232,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setClientName(fields.clientName);
             setAdditionalNotes(fields.additionalNotes);
             setVatRegistered(data.vatRegistered ?? false);
+            setTaxRegime(data.taxRegime ?? "AAM");
+            setVatRate(data.vatRate ?? null);
+            setVatAmount(data.vatAmount ?? null);
+            setGrossTotal(data.grossQuotePrice ?? null);
+            setTaxConfigurationValid(data.taxConfigurationValid ?? true);
+            setDraftVersion(data.draftVersion ?? null);
+            setQuoteSnapshot(data.quoteSnapshot ?? null);
+            setNetQuotePrice(data.netQuotePrice ?? null);
             setReviewWarnings(data.reviewWarnings ?? []);
             setCoverageItems(data.coverageItems ?? []);
             setCoverageWarnings(data.coverageWarnings ?? []);
@@ -215,10 +264,13 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             includeAdditionalNotes,
             lineItems: items.map((item) => ({
                 ...item,
-                quantity: Number(item.quantity || 0),
+                quantity: item.quantity == null ? null : Number(item.quantity),
                 unitPrice: Number(item.unitPrice || 0),
-                subtotal: Math.round(Number(item.quantity || 0) * Number(item.unitPrice || 0)),
+                subtotal: item.quantity == null
+                    ? null
+                    : Math.round(Number(item.quantity) * Number(item.unitPrice || 0)),
             })),
+            expectedVersion: draftVersion,
         };
     }
 
@@ -233,6 +285,14 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         setAdditionalNotes(fields.additionalNotes);
         setIncludeAdditionalNotes(fields.includeAdditionalNotes);
         setVatRegistered(data.vatRegistered ?? false);
+        setTaxRegime(data.taxRegime ?? "AAM");
+        setVatRate(data.vatRate ?? null);
+        setVatAmount(data.vatAmount ?? null);
+        setGrossTotal(data.grossQuotePrice ?? null);
+        setTaxConfigurationValid(data.taxConfigurationValid ?? true);
+        setDraftVersion(data.draftVersion ?? null);
+        setQuoteSnapshot(data.quoteSnapshot ?? null);
+        setNetQuotePrice(data.netQuotePrice ?? null);
         setLineItems(fields.lineItems);
         setCoverageItems(data.coverageItems ?? []);
         setCoverageWarnings(data.coverageWarnings ?? []);
@@ -257,8 +317,34 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setSaveSuccess("A módosítások mentésre kerültek.");
             return data;
         } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
             setError(err instanceof ApiError ? err.message : "A mentés sikertelen");
             return null;
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    async function addCatalogLine(
+        workId: string, catalogItemId: number, unmappedId: string | null,
+        parameters: {id: string; value: number; unit: string}[]
+    ) {
+        if (!draftId || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        try {
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/work-mappings`, {
+                method: "POST",
+                body: {
+                    workId, catalogItemId, expectedVersion: draftVersion, unmappedId,
+                    parameters,
+                },
+            });
+            applySavedDraft(data);
+            setSaveSuccess("A katalógustétel hozzáadva, a lefedettséget ellenőrizd újra.");
+        } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
+            setError(err instanceof ApiError ? err.message : "A katalógustétel hozzáadása sikertelen.");
         } finally {
             setBusyAction(null);
         }
@@ -276,11 +362,84 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         setLineItems((current) => {
             const next = [...current];
             const row = {...next[index]};
-            row.quantity = Number(value) || 0;
-            row.subtotal = Math.round(Number(row.quantity) * Number(row.unitPrice ?? 0));
+            row.quantity = value === "" ? null : Number(value);
+            row.subtotal = null;
             next[index] = row;
             return next;
         });
+    }
+
+    function updateUnitPrice(index: number, value: string) {
+        setPreviewGenerated(false);
+        setLineItems((current) => current.map((item, currentIndex) => currentIndex === index
+            ? {
+                ...item,
+                unitPrice: Number(value) || 0,
+                priceOverridden: value !== "" && Number(value) !== item.catalogUnitPrice,
+                priceOverrideReason: value !== "" && Number(value) !== item.catalogUnitPrice
+                    ? item.priceOverrideReason ?? "" : null,
+                subtotal: null,
+            }
+            : item));
+    }
+
+    function updateCalculationParameter(lineIndex: number, parameterIndex: number, value: string) {
+        setPreviewGenerated(false);
+        setLineItems((current) => current.map((item, index) => {
+            if (index !== lineIndex) return item;
+            const parameters = [...(item.calculationParameters ?? [])];
+            const parameter = parameters[parameterIndex];
+            if (parameter) parameters[parameterIndex] = {
+                ...parameter,
+                value: value === "" ? null : Number(value),
+                source: parameter.source === "AI_ASSUMPTION" && value !== ""
+                    ? "USER_OVERRIDE" : parameter.source,
+                approved: parameter.source === "AI_ASSUMPTION" && value !== ""
+                    ? true : parameter.approved,
+                rejected: false,
+            };
+            return {
+                ...item,
+                assumptionsApproved: parameters.some((candidate) => candidate.source === "AI_ASSUMPTION")
+                    ? false : item.assumptionsApproved,
+                calculationParameters: parameters,
+            };
+        }));
+    }
+
+    function rejectAssumption(lineIndex: number, parameterIndex: number) {
+        setPreviewGenerated(false);
+        setLineItems((current) => current.map((item, index) => {
+            if (index !== lineIndex) return item;
+            const parameters = [...(item.calculationParameters ?? [])];
+            const parameter = parameters[parameterIndex];
+            if (parameter?.source === "AI_ASSUMPTION") {
+                parameters[parameterIndex] = {
+                    ...parameter, value: null, approved: false, rejected: true,
+                };
+            }
+            return {...item, assumptionsApproved: false, calculationParameters: parameters};
+        }));
+    }
+
+    function updatePriceOverrideReason(index: number, reason: string) {
+        setLineItems((current) => current.map((item, currentIndex) => currentIndex === index
+            ? {...item, priceOverrideReason: reason}
+            : item));
+    }
+
+    function approveAssumptions(index: number, approved: boolean) {
+        setPreviewGenerated(false);
+        setLineItems((current) => current.map((item, currentIndex) => currentIndex === index
+            ? {
+                ...item,
+                assumptionsApproved: approved,
+                calculationParameters: (item.calculationParameters ?? []).map((parameter) =>
+                    parameter.source === "AI_ASSUMPTION"
+                        ? {...parameter, approved}
+                        : parameter),
+            }
+            : item));
     }
 
     async function saveCoverageDecision(
@@ -306,6 +465,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             applySavedDraft(data);
             setSaveSuccess("Az ellenőrzési döntés mentésre került.");
         } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
             setError(err instanceof ApiError ? err.message : "Az ellenőrzési döntés mentése sikertelen");
         } finally {
             setBusyAction(null);
@@ -331,6 +491,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setPreviewGenerated(true);
             return true;
         } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
             setError(err instanceof ApiError ? err.message : "Az előnézet generálása sikertelen");
             return false;
         } finally {
@@ -355,6 +516,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                     ...payload,
                     confirmIncomplete,
                     confirmedFingerprint: expectedFingerprint,
+                    expectedVersion: draftVersion,
                 },
             });
             applySavedDraft(data);
@@ -363,7 +525,87 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setSaveSuccess("A Gmail-piszkozat elkészült. Ellenőrizd a Gmailben, mielőtt elküldöd.");
             onSent();
         } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
             setError(err instanceof ApiError ? err.message : "A Gmail-piszkozat létrehozása sikertelen");
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    async function addManualLine(input: {
+        name: string; quantity: number; unit: string; netUnitPrice: number;
+        itemType: NonNullable<DraftLineItem["itemType"]>; workId?: string;
+    }) {
+        if (!draftId || draftVersion == null || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        try {
+            const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/manual-lines`, {
+                method: "POST",
+                body: {...input, expectedVersion: draftVersion},
+            });
+            applySavedDraft(data);
+            setSaveSuccess("A kézi ajánlati tétel hozzáadva.");
+        } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
+            setError(err instanceof ApiError ? err.message : "A kézi tétel hozzáadása sikertelen.");
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    async function updateManualLine(lineItemId: string, input: {
+        name: string; quantity: number; unit: string; netUnitPrice: number;
+        itemType: NonNullable<DraftLineItem["itemType"]>;
+    }) {
+        if (!draftId || draftVersion == null || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        try {
+            const data = await apiFetch<GenerateDraftResponse>(
+                `/api/drafts/${draftId}/manual-lines/${encodeURIComponent(lineItemId)}`, {
+                    method: "PUT",
+                    body: {...input, expectedVersion: draftVersion},
+                });
+            applySavedDraft(data);
+            setSaveSuccess("A kézi ajánlati tétel módosításai mentésre kerültek.");
+        } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
+            setError(err instanceof ApiError ? err.message : "A kézi tétel módosítása sikertelen.");
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    async function deleteLine(lineItemId: string) {
+        if (!draftId || draftVersion == null || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        try {
+            const data = await apiFetch<GenerateDraftResponse>(
+                `/api/drafts/${draftId}/lines/${encodeURIComponent(lineItemId)}?expectedVersion=${draftVersion}`,
+                {method: "DELETE"},
+            );
+            applySavedDraft(data);
+            setSaveSuccess("Az ajánlati tétel törölve.");
+        } catch (err) {
+            setVersionConflict(err instanceof ApiError && err.status === 409);
+            setError(err instanceof ApiError ? err.message : "Az ajánlati tétel törlése sikertelen.");
+        } finally {
+            setBusyAction(null);
+        }
+    }
+
+    async function reloadDraft() {
+        if (!draftId || busyAction !== null) return;
+        setBusyAction("save");
+        setError(null);
+        try {
+            applySavedDraft(await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}`));
+            setVersionConflict(false);
+            setSaveSuccess("A legfrissebb mentett ajánlat betöltve.");
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Az ajánlat újratöltése sikertelen.");
         } finally {
             setBusyAction(null);
         }
@@ -420,6 +662,12 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                     <p className="min-w-0 break-words">{error}</p>
                 </div>
             )}
+            {versionConflict && (
+                <button type="button" onClick={() => void reloadDraft()} disabled={busyAction !== null}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50">
+                    Legfrissebb ajánlat betöltése
+                </button>
+            )}
 
             {busyAction && (
                 <p role="status"
@@ -441,6 +689,9 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 coverageItems={coverageItems}
                 coverageWarnings={coverageWarnings}
                 lineItems={lineItems}
+                quoteSnapshot={quoteSnapshot}
+                catalogItems={catalogItems}
+                onAddCatalogLine={addCatalogLine}
                 analysisFresh={analysisFresh}
                 busy={busyAction !== null}
                 onAnalyze={analyze}
@@ -472,8 +723,17 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 <>
                     <QuoteLineItemsEditor
                         lineItems={lineItems}
+                        quoteSnapshot={quoteSnapshot}
                         busy={busyAction !== null}
-                        onUpdate={(_index, _field, value) => updateLineItem(_index, value)}
+                        onUpdateQuantity={updateLineItem}
+                        onUpdateUnitPrice={updateUnitPrice}
+                        onUpdatePriceReason={updatePriceOverrideReason}
+                        onUpdateParameter={updateCalculationParameter}
+                        onApproveAssumptions={approveAssumptions}
+                        onRejectAssumption={rejectAssumption}
+                        onAddManualLine={addManualLine}
+                        onUpdateManualLine={updateManualLine}
+                        onDeleteLine={deleteLine}
                     />
                     <DraftActions
                         draftId={draftId}
@@ -483,7 +743,11 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                         gmailDraftCreated={gmailDraftCreated}
                         saveSuccess={saveSuccess}
                         total={total}
-                        vatRegistered={vatRegistered}
+                        taxRegime={taxRegime ?? "AAM"}
+                        vatRate={vatRate}
+                        vatAmount={vatAmount}
+                        grossTotal={grossTotal}
+                        taxConfigurationValid={taxConfigurationValid}
                         onSave={save}
                         onPreview={preview}
                         onCreateGmailDraft={createGmailDraft}

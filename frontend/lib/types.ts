@@ -51,7 +51,12 @@ export type DraftQuoteSnapshot = {
     explicitlyRequested: boolean;
     assumptions: string[];
     missingParameters: string[];
-    unmappedLines: {explanation: string | null; reason: string; assumptions: string[]}[];
+    unmappedLines: {
+      unmappedId: string | null;
+      explanation: string | null;
+      reason: string;
+      assumptions: string[];
+    }[];
   }[];
   lineItems: {
     lineItemId: string;
@@ -103,6 +108,9 @@ export type DraftQuoteSnapshot = {
       issues: {code: string; message: string; reference: string | null}[];
       trace: {stepId: string; operation: string; operands: string[]; result: SnapshotQuantity}[];
     };
+    manualNetUnitPrice?: number | null;
+    manualPriceReason?: string | null;
+    userOverrideLine: boolean;
     requiredQuantity: SnapshotQuantity | null;
     procurementQuantity: SnapshotQuantity | null;
     customerChargeQuantity: SnapshotQuantity | null;
@@ -136,17 +144,39 @@ export type GenerateDraftResponse = {
   quoteSnapshot?: DraftQuoteSnapshot | null;
   calculationStatus?: CalculationStatus;
   netQuotePrice?: number | null;
+  taxRegime?: "AAM" | "VAT_REGISTERED" | "REVERSE_CHARGE_UNSUPPORTED";
+  vatRate?: number | null;
+  vatAmount?: number | null;
+  grossQuotePrice?: number | null;
+  taxConfigurationValid?: boolean;
+  draftVersion?: number;
+};
+
+export type CalculationParameter = {
+  id: string;
+  value: number | null;
+  unit: string;
+  source: CalculationInputSource;
+  approved: boolean;
+  rejected: boolean;
 };
 
 export type DraftLineItem = {
   name: string;
   unit: string;
-  quantity: number;
+  quantity: number | null;
   unitPrice: number;
-  subtotal: number;
+  subtotal: number | null;
   lineItemId?: string;
   catalogItemId?: number | null;
   priceBasis: "NET";
+  priceOverridden?: boolean;
+  priceOverrideReason?: string | null;
+  catalogUnitPrice?: number | null;
+  assumptionsApproved?: boolean;
+  calculationParameters?: CalculationParameter[];
+  userOverrideLine?: boolean;
+  itemType?: CatalogItemType | null;
 };
 
 export type AnalysisResponse = {
@@ -164,6 +194,33 @@ export type AnalysisResponse = {
   quoteSnapshot?: DraftQuoteSnapshot | null;
   calculationStatus?: CalculationStatus;
   netQuotePrice?: number | null;
+  taxRegime?: "AAM" | "VAT_REGISTERED" | "REVERSE_CHARGE_UNSUPPORTED";
+  vatRate?: number | null;
+  vatAmount?: number | null;
+  grossQuotePrice?: number | null;
+  taxConfigurationValid?: boolean;
+  draftVersion?: number;
+};
+
+export type WorkMappingPreviewResponse = {
+  workId: string;
+  unmappedId: string | null;
+  catalogItemId: number;
+  catalogItemName: string;
+  outputUnit: string;
+  parameters: {
+    id: string;
+    label: string;
+    unit: string;
+    displayUnit: string;
+    value: number | null;
+    displayValue: number | null;
+    required: boolean;
+    source: CalculationInputSource;
+    editable: boolean;
+  }[];
+  calculationStatus: CalculationStatus;
+  issues: {code: string; message: string; reference: string | null}[];
 };
 
 export type CoverageStatus = "INCLUDED" | "NEEDS_REVIEW" | "MISSING" | "EXCLUDED";
@@ -204,6 +261,7 @@ export type FinalizeDraftRequest = {
   includeAdditionalNotes?: boolean;
   confirmIncomplete?: boolean;
   confirmedFingerprint?: string | null;
+  expectedVersion?: number;
 };
 
 export type SaveDraftRequest = {
@@ -211,6 +269,7 @@ export type SaveDraftRequest = {
   lineItems: DraftLineItem[];
   additionalNotes?: string | null;
   includeAdditionalNotes?: boolean;
+  expectedVersion?: number;
 };
 
 export type CatalogItemType = "MATERIAL" | "LABOR" | "COMBINED" | "OTHER";
@@ -258,6 +317,8 @@ export type CompanyProfile = {
   floor: string | null;
   door: string | null;
   vatRegistered: boolean;
+  taxRegime: "AAM" | "VAT_REGISTERED" | "REVERSE_CHARGE_UNSUPPORTED";
+  vatRate: number | null;
   offerTerms: string | null;
 };
 

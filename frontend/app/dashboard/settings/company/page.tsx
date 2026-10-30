@@ -8,13 +8,11 @@ import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {CompanyProfile, SaveCompanyProfileRequest} from "@/lib/types";
 
-type FormData = {
-    [Key in keyof SaveCompanyProfileRequest]: NonNullable<SaveCompanyProfileRequest[Key]>;
-};
+type FormData = SaveCompanyProfileRequest;
 
 type TextFieldProps = {
     label: string;
-    value: string;
+    value: string | null;
     required?: boolean;
     readOnly?: boolean;
     onChange?: (value: string) => void;
@@ -37,6 +35,8 @@ const EMPTY_FORM: FormData = {
     floor: "",
     door: "",
     vatRegistered: false,
+    taxRegime: "AAM",
+    vatRate: null,
     offerTerms: "Jelen árajánlat a kiküldéstől számított 15 napig érvényes.\n\nA megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot a helyszíni felmérést követően rögzítjük.",
 };
 
@@ -46,7 +46,7 @@ function TextField({label, value, required, readOnly, onChange}: TextFieldProps)
             {label}{required ? " *" : ""}
             <input
                 type="text"
-                value={value}
+                value={value ?? ""}
                 required={required}
                 readOnly={readOnly}
                 onChange={onChange ? (event) => onChange(event.target.value) : undefined}
@@ -84,6 +84,8 @@ export default function CompanySettingsPage() {
                 floor: profile.floor ?? "",
                 door: profile.door ?? "",
                 vatRegistered: profile.vatRegistered ?? false,
+                taxRegime: profile.taxRegime ?? (profile.vatRegistered ? "VAT_REGISTERED" : "AAM"),
+                vatRate: profile.vatRate ?? null,
                 offerTerms: profile.offerTerms ?? "",
             });
             setError(null);
@@ -198,26 +200,48 @@ export default function CompanySettingsPage() {
                                     value={formData.offerorPhone}
                                     onChange={(value) => updateField("offerorPhone", value)}
                                 />
-                                <label className="flex items-start gap-3 text-sm font-medium text-slate-700">
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.vatRegistered}
+                                <label className="block text-sm font-medium text-slate-700">
+                                    Adózási mód
+                                    <select
+                                        value={formData.taxRegime}
                                         onChange={(event) => {
+                                            const taxRegime = event.target.value as FormData["taxRegime"];
                                             setFormData((current) => ({
                                                 ...current,
-                                                vatRegistered: event.target.checked,
+                                                taxRegime,
+                                                vatRegistered: taxRegime === "VAT_REGISTERED",
+                                                vatRate: taxRegime === "VAT_REGISTERED" ? current.vatRate : null,
                                             }));
                                             setSaved(false);
                                         }}
-                                        className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <span>
-                                        A cég ÁFA-körös
-                                        <span className="mt-1 block font-normal text-slate-500">
-                                            Az árjegyzékben megadott bruttó árakból az ajánlat nettó összeget és 27% ÁFÁ-t számol.
-                                        </span>
-                                    </span>
+                                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                                    >
+                                        <option value="AAM">Alanyi adómentes (AAM)</option>
+                                        <option value="VAT_REGISTERED">ÁFA felszámítására kötelezett</option>
+                                        <option value="REVERSE_CHARGE_UNSUPPORTED">Fordított adózás (jelenleg nem támogatott)</option>
+                                    </select>
                                 </label>
+                                {formData.taxRegime === "VAT_REGISTERED" && (
+                                    <label className="block text-sm font-medium text-slate-700">
+                                        ÁFA-kulcs (%)
+                                        <input
+                                            type="number" min="0.01" max="100" step="0.01" required
+                                            value={formData.vatRate ?? ""}
+                                            onChange={(event) => {
+                                                const value = event.target.value;
+                                                setFormData((current) => ({
+                                                    ...current,
+                                                    vatRate: value === "" ? null : Number(value),
+                                                }));
+                                                setSaved(false);
+                                            }}
+                                            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                                        />
+                                        <span className="mt-1 block font-normal text-slate-500">
+                                            Az ajánlatban szereplő katalógusárak nettó árak; az itt megadott kulcs alapján számolunk.
+                                        </span>
+                                    </label>
+                                )}
                             </div>
                         </section>
 
@@ -285,7 +309,7 @@ export default function CompanySettingsPage() {
                                 <textarea
                                     id="offer-terms"
                                     rows={6}
-                                    value={formData.offerTerms}
+                                    value={formData.offerTerms ?? ""}
                                     onChange={(event) => updateField("offerTerms", event.target.value)}
                                     className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 />

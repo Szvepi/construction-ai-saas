@@ -114,11 +114,13 @@ public final class AiQuoteSnapshotBuilder {
                         || !catalogById.containsKey(lineProposal.catalogItemId())) {
                     work.unmappedLineCount++;
                     work.unmappedLines.add(new DraftQuoteSnapshot.UnmappedLineSnapshot(
+                            new com.buildassist.calculation.QuoteIdGenerator().newLineItemId(),
                             safeText(lineProposal.explanation()),
                             lineProposal.catalogItemId() == null
                                     ? "Az AI nem javasolt katalógustételt."
                                     : "A javasolt katalógustétel nem érhető el ehhez a vállalkozáshoz.",
-                            boundedStrings(lineProposal.assumptions(), 16)));
+                            boundedStrings(lineProposal.assumptions(), 16),
+                            retainUnmappedPlan(lineProposal.calculationPlan(), emailBody, additionalNotes)));
                     if (lineProposal.catalogItemId() != null) {
                         warnings.add("Egy javasolt katalógustétel nem érhető el ehhez a vállalkozáshoz; "
                                 + "az ügyféligény nem lett beárazva.");
@@ -778,6 +780,7 @@ public final class AiQuoteSnapshotBuilder {
             workReviewReasons.add(source.issue());
             warnings.add(source.issue());
         }
+
         boolean explicitlyRequested = Boolean.TRUE.equals(proposal.explicitlyRequested());
         if (!explicitlyRequested) {
             workReviewReasons.add("Az AI ezt a munkát következtetésként javasolta, nem közvetlen ügyfélkérésként.");
@@ -835,6 +838,59 @@ public final class AiQuoteSnapshotBuilder {
                 requestedUnit, settlement.mode(), null,
                 source.evidence(), safeText(proposal.explanation()), explicitlyRequested,
                 assumptions, missing, workReviewReasons);
+    }
+
+    private CalculationPlan retainUnmappedPlan(
+            AiQuoteDtos.PlanProposal proposal, String emailBody, String additionalNotes) {
+        if (proposal == null) {
+            return null;
+        }
+        List<CalculationInput> inputs = new ArrayList<>();
+        List<String> reviewReasons = new ArrayList<>(boundedStrings(proposal.reviewReasons(), 32));
+        for (AiQuoteDtos.InputProposal input : proposal.inputs()) {
+            if (input == null || input.id() == null || !SAFE_ID.matcher(input.id()).matches()
+                    || input.unit() == null || input.unit().isBlank()) {
+                return null;
+            }
+            InputSource source = parseSource(input.source());
+            if (source == InputSource.CUSTOMER_EMAIL || source == InputSource.CUSTOMER_SUPPLEMENT) {
+                String evidenceSource = source == InputSource.CUSTOMER_EMAIL ? emailBody : additionalNotes;
+                if (input.value() == null || safeText(input.evidence()) == null
+                        || evidenceSource == null || !evidenceSource.contains(input.evidence())
+                        || !verifiedNumericEvidence(source, input.evidence(), input.value(), input.unit(),
+                        emailBody, additionalNotes)) {
+                    inputs.add(new CalculationInput(
+                            input.id(), null, input.unit(), InputSource.AI_ASSUMPTION, false, null));
+                    reviewReasons.add("A hozzárendeléshez szükséges ügyféladat nem igazolható.");
+                } else {
+                    inputs.add(new CalculationInput(
+                            input.id(), input.value(), input.unit(), source, true, safeText(input.evidence())));
+                }
+            } else if (source == InputSource.AI_ASSUMPTION) {
+                inputs.add(new CalculationInput(input.id(), input.value(), input.unit(),
+                        InputSource.AI_ASSUMPTION, false, null));
+            } else {
+                inputs.add(new CalculationInput(input.id(), null, input.unit(),
+                        InputSource.AI_ASSUMPTION, false, null));
+                reviewReasons.add("A katalógus- vagy kivitelezői értéket a szerver konfigurációja határozza meg.");
+            }
+        }
+        List<CalculationStep> steps = new ArrayList<>();
+        for (AiQuoteDtos.StepProposal step : proposal.steps()) {
+            if (step == null || step.id() == null || !SAFE_ID.matcher(step.id()).matches()
+                    || step.operands() == null || step.operands().isEmpty()) {
+                return null;
+            }
+            CalculationOperation operation = parseOperation(step.operation());
+            RoundingMode roundingMode = parseRoundingMode(step.roundingMode());
+            if (operation == null || (step.roundingMode() != null && roundingMode == null)) {
+                return null;
+            }
+            steps.add(new CalculationStep(
+                    step.id(), operation, step.operands(), step.outputUnit(), step.scale(), roundingMode));
+        }
+        CalculationPlan plan = new CalculationPlan(inputs, steps, proposal.outputReference(), reviewReasons);
+        return new CalculationPlanValidator().validate(plan).isEmpty() ? plan : null;
     }
 
     private SourceResolution resolveSource(

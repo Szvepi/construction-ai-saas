@@ -9,7 +9,7 @@ public record DraftQuoteSnapshot(
         List<QuoteWorkSnapshot> workItems,
         List<QuoteLineSnapshot> lineItems) {
 
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int CURRENT_SCHEMA_VERSION = 4;
 
     public DraftQuoteSnapshot {
         workItems = workItems == null ? List.of() : List.copyOf(workItems);
@@ -75,11 +75,22 @@ public record DraftQuoteSnapshot(
     }
 
     public record UnmappedLineSnapshot(
+            String unmappedId,
             String explanation,
             String reason,
-            List<String> assumptions) {
+            List<String> assumptions,
+            CalculationPlan suggestedCalculationPlan) {
         public UnmappedLineSnapshot {
             assumptions = assumptions == null ? List.of() : List.copyOf(assumptions);
+        }
+
+        public UnmappedLineSnapshot(
+                String unmappedId, String explanation, String reason, List<String> assumptions) {
+            this(unmappedId, explanation, reason, assumptions, null);
+        }
+
+        public UnmappedLineSnapshot(String explanation, String reason, List<String> assumptions) {
+            this(null, explanation, reason, assumptions, null);
         }
     }
 
@@ -104,11 +115,48 @@ public record DraftQuoteSnapshot(
             Quantity procurementPackageCount,
             List<String> assumptions,
             String procurementOutputReference,
-            String procurementPackageCountReference) {
+            String procurementPackageCountReference,
+            BigDecimal manualNetUnitPrice,
+            String manualPriceReason,
+            boolean userOverrideLine) {
 
         public QuoteLineSnapshot {
             requirements = requirements == null ? List.of() : List.copyOf(requirements);
             assumptions = assumptions == null ? List.of() : List.copyOf(assumptions);
+        }
+
+        public QuoteLineSnapshot(
+                String lineItemId, String workId, Long catalogItemId, CatalogItemSnapshot catalogItem,
+                SettlementMode settlementMode, List<RequirementSnapshot> requirements,
+                CalculationPlan calculationPlan, CalculationResult calculationResult,
+                Quantity requiredQuantity, Quantity procurementQuantity, Quantity customerChargeQuantity,
+                Quantity userOverrideQuantity, boolean assumptionsApproved, String approvedFingerprint,
+                String explanation, BigDecimal netLineTotal, boolean chargeable,
+                Quantity procurementPackageCount, List<String> assumptions,
+                String procurementOutputReference, String procurementPackageCountReference) {
+            this(lineItemId, workId, catalogItemId, catalogItem, settlementMode, requirements,
+                    calculationPlan, calculationResult, requiredQuantity, procurementQuantity,
+                    customerChargeQuantity, userOverrideQuantity, assumptionsApproved, approvedFingerprint,
+                    explanation, netLineTotal, chargeable, procurementPackageCount, assumptions,
+                    procurementOutputReference, procurementPackageCountReference, null, null, false);
+        }
+
+        public QuoteLineSnapshot(
+                String lineItemId, String workId, Long catalogItemId, CatalogItemSnapshot catalogItem,
+                SettlementMode settlementMode, List<RequirementSnapshot> requirements,
+                CalculationPlan calculationPlan, CalculationResult calculationResult,
+                Quantity requiredQuantity, Quantity procurementQuantity, Quantity customerChargeQuantity,
+                Quantity userOverrideQuantity, boolean assumptionsApproved, String approvedFingerprint,
+                String explanation, BigDecimal netLineTotal, boolean chargeable,
+                Quantity procurementPackageCount, List<String> assumptions,
+                String procurementOutputReference, String procurementPackageCountReference,
+                BigDecimal manualNetUnitPrice, String manualPriceReason) {
+            this(lineItemId, workId, catalogItemId, catalogItem, settlementMode, requirements,
+                    calculationPlan, calculationResult, requiredQuantity, procurementQuantity,
+                    customerChargeQuantity, userOverrideQuantity, assumptionsApproved, approvedFingerprint,
+                    explanation, netLineTotal, chargeable, procurementPackageCount, assumptions,
+                    procurementOutputReference, procurementPackageCountReference,
+                    manualNetUnitPrice, manualPriceReason, false);
         }
 
         public QuoteLineSnapshot(
@@ -134,7 +182,8 @@ public record DraftQuoteSnapshot(
             this(lineItemId, workId, catalogItemId, catalogItem, settlementMode, requirements,
                     calculationPlan, calculationResult, requiredQuantity, procurementQuantity,
                     customerChargeQuantity, userOverrideQuantity, assumptionsApproved, approvedFingerprint,
-                    explanation, netLineTotal, chargeable, procurementPackageCount, assumptions, null, null);
+                    explanation, netLineTotal, chargeable, procurementPackageCount, assumptions,
+                    null, null, null, null, false);
         }
 
         public QuoteLineSnapshot(
@@ -157,7 +206,7 @@ public record DraftQuoteSnapshot(
             this(lineItemId, workId, catalogItemId, catalogItem, settlementMode, requirements,
                     calculationPlan, calculationResult, requiredQuantity, procurementQuantity,
                     customerChargeQuantity, userOverrideQuantity, assumptionsApproved, approvedFingerprint,
-                    explanation, netLineTotal, true, null, List.of(), null, null);
+                    explanation, netLineTotal, true, null, List.of(), null, null, null, null);
         }
     }
 

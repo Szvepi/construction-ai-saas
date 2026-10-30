@@ -89,7 +89,8 @@ public final class DraftQuotePricingService {
                                 .toList(),
                         line.userOverrideQuantity() == null
                                 ? line.customerChargeQuantity() : line.userOverrideQuantity(),
-                        NetMoney.of(line.catalogItem().netSellingUnitPrice())));
+                        NetMoney.of(line.manualNetUnitPrice() == null
+                                ? line.catalogItem().netSellingUnitPrice() : line.manualNetUnitPrice())));
             }
         }
 
@@ -113,7 +114,8 @@ public final class DraftQuotePricingService {
                             line.customerChargeQuantity(), line.userOverrideQuantity(),
                             line.assumptionsApproved(), line.approvedFingerprint(), line.explanation(),
                             total, line.chargeable(), line.procurementPackageCount(), line.assumptions(),
-                            line.procurementOutputReference(), line.procurementPackageCountReference());
+                            line.procurementOutputReference(), line.procurementPackageCountReference(),
+                            line.manualNetUnitPrice(), line.manualPriceReason(), line.userOverrideLine());
                 })
                 .toList();
 

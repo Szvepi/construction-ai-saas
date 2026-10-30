@@ -32,7 +32,7 @@
         <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Bruttó egységár</th>
         <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:unless="${vatRegistered}">Egységár</th>
         <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Nettó érték</th>
-        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">ÁFA (<span th:text="${vatRate}">27</span>%)</th>
+        <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">ÁFA (<span th:text="${vatRate}">0</span>%)</th>
         <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:unless="${vatRegistered}">Fizetendő</th>
         <th style="padding: 10px; text-align: right; border: 1px solid #e2e8f0;" th:if="${vatRegistered}">Bruttó érték</th>
     </tr>
@@ -61,7 +61,7 @@
 
 <div style="margin: 20px 0; text-align: right;" th:if="${vatRegistered}">
     <p style="margin: 0;">Nettó összesen: <span th:text="${netTotal}">0</span> Ft</p>
-    <p style="margin: 0;">ÁFA (<span th:text="${vatRate}">27</span>%): <span th:text="${vatTotal}">0</span> Ft</p>
+    <p style="margin: 0;">ÁFA (<span th:text="${vatRate}">0</span>%): <span th:text="${vatTotal}">0</span> Ft</p>
     <h3 style="margin: 6px 0 0; color: #1e293b;">Bruttó fizetendő: <span th:text="${grossTotal}">0</span> Ft</h3>
 </div>
 <div style="margin: 20px 0; text-align: right;" th:unless="${vatRegistered}">
@@ -77,7 +77,7 @@
 <div th:if="${!#strings.isEmpty(offerTerms)}" style="white-space: pre-line;">
     <p th:text="${offerTerms}"></p>
 </div>
-<p th:if="${vatRegistered}">Az árjegyzék bruttó árai 27% ÁFÁ-t tartalmaznak; az ajánlat ezt nettó és ÁFA bontásban is feltünteti.</p>
+<p th:if="${vatRegistered}">Az ajánlat az alkalmazott, beállított ÁFA-kulcs alapján mutatja a nettó, ÁFA- és bruttó összegeket.</p>
 <p th:unless="${vatRegistered}">Az ajánlatban szereplő árak ÁFA felszámítása nélkül értendők.</p>
 <br/>
 <p>Amennyiben ajánlatunk elnyerte tetszését, vagy kérdése lenne a kivitelezéssel kapcsolatban, készséggel állunk

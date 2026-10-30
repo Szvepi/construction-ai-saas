@@ -30,9 +30,8 @@ public final class DraftQuoteSnapshotValidator {
                 return List.of("Each work item requires a source and settlement mode.");
             }
             if (work.source() == InputSource.CATALOG_DEFAULT
-                    || work.source() == InputSource.CONTRACTOR_PROFILE
-                    || work.source() == InputSource.USER_OVERRIDE) {
-                return List.of("A work request cannot claim catalog, contractor, or override provenance.");
+                    || work.source() == InputSource.CONTRACTOR_PROFILE) {
+                return List.of("A work request cannot claim catalog or contractor provenance.");
             }
             if (work.recognitionStatus() == null) {
                 return List.of("Each work item requires a recognition status.");
@@ -65,6 +64,26 @@ public final class DraftQuoteSnapshotValidator {
                     line == null || line.reason() == null || line.reason().isBlank())) {
                 return List.of("Each unmapped line must retain an explanation for its review status.");
             }
+            for (DraftQuoteSnapshot.UnmappedLineSnapshot unmapped : work.unmappedLines()) {
+                if (unmapped.suggestedCalculationPlan() == null) {
+                    continue;
+                }
+                if (!planValidator.validate(unmapped.suggestedCalculationPlan()).isEmpty()) {
+                    return List.of("An unmapped work item contains an invalid suggested calculation plan.");
+                }
+                for (CalculationInput input : unmapped.suggestedCalculationPlan().inputs()) {
+                    if (input.source() == InputSource.CATALOG_DEFAULT
+                            || input.source() == InputSource.CONTRACTOR_PROFILE
+                            || input.source() == InputSource.USER_OVERRIDE
+                            || (input.source() == InputSource.AI_ASSUMPTION && input.approved())
+                            || ((input.source() == InputSource.CUSTOMER_EMAIL
+                            || input.source() == InputSource.CUSTOMER_SUPPLEMENT)
+                            && input.value() != null
+                            && (input.evidence() == null || input.evidence().isBlank()))) {
+                        return List.of("An unmapped calculation plan contains untrusted parameter provenance.");
+                    }
+                }
+            }
         }
 
         Set<String> lineIds = new HashSet<>();
@@ -82,9 +101,15 @@ public final class DraftQuoteSnapshotValidator {
                 return List.of("A catalog item reference requires a frozen catalog snapshot.");
             }
             if (line.chargeable()
-                    && (line.catalogItemId() == null || line.catalogItem() == null
-                    || line.catalogItem().netSellingUnitPrice() == null)) {
-                return List.of("A chargeable quote line requires a frozen catalog price.");
+                    && (line.catalogItem() == null || line.catalogItem().netSellingUnitPrice() == null
+                    || (line.catalogItemId() == null && !line.userOverrideLine()))) {
+                return List.of("A chargeable quote line requires a catalog price or a validated manual origin.");
+            }
+            if (line.userOverrideLine()
+                    && (line.catalogItemId() != null || line.catalogItem() == null
+                    || line.manualNetUnitPrice() == null || line.manualPriceReason() == null
+                    || !line.manualPriceReason().startsWith("USER_OVERRIDE:"))) {
+                return List.of("A manual quote line must be clearly marked and cannot claim a catalog item.");
             }
             DraftQuoteSnapshot.QuoteWorkSnapshot work = snapshot.workItems().stream()
                     .filter(item -> item.workId().equals(line.workId()))
@@ -119,6 +144,12 @@ public final class DraftQuoteSnapshotValidator {
             }
             if (line.netLineTotal() != null && line.netLineTotal().signum() < 0) {
                 return List.of("A quote line total cannot be negative.");
+            }
+            if ((line.manualNetUnitPrice() == null) != (line.manualPriceReason() == null)
+                    || (line.manualNetUnitPrice() != null
+                    && (line.manualNetUnitPrice().signum() <= 0
+                    || line.manualPriceReason().isBlank()))) {
+                return List.of("A manual unit price requires a positive amount and an audit reason.");
             }
             if (line.calculationResult().status() == CalculationStatus.VALID) {
                 if (line.requiredQuantity() == null || line.calculationResult().quantity() == null) {
@@ -243,7 +274,7 @@ public final class DraftQuoteSnapshotValidator {
             }
             if (line.calculationPlan() != null) {
                 List<String> provenanceErrors = validateInputProvenance(
-                        line.calculationPlan(), line.catalogItem(),
+                        line.calculationPlan(), line.catalogItem(), line.userOverrideLine(),
                         line.calculationResult().status() == CalculationStatus.VALID);
                 if (!provenanceErrors.isEmpty()) {
                     return provenanceErrors;
@@ -261,6 +292,11 @@ public final class DraftQuoteSnapshotValidator {
             if (work.recognitionStatus() == WorkRecognitionStatus.MAPPED
                     && !worksWithLines.contains(work.workId())) {
                 return List.of("A mapped work item must have at least one directly linked quote line.");
+            }
+            if (work.source() == InputSource.USER_OVERRIDE
+                    && snapshot.lineItems().stream().noneMatch(line ->
+                    line.workId().equals(work.workId()) && line.userOverrideLine())) {
+                return List.of("A manually created work item must retain its manually sourced quote line.");
             }
         }
         return List.of();
@@ -291,6 +327,7 @@ public final class DraftQuoteSnapshotValidator {
     private List<String> validateInputProvenance(
             CalculationPlan plan,
             DraftQuoteSnapshot.CatalogItemSnapshot catalogItem,
+            boolean userOverrideLine,
             boolean strictUnits) {
         Map<String, CatalogParameterDefault> defaults = catalogItem == null
                 || catalogItem.calculationConfig() == null
@@ -315,8 +352,9 @@ public final class DraftQuoteSnapshotValidator {
             if (input.source() == InputSource.AI_ASSUMPTION && input.approved()) {
                 return List.of("An AI assumption cannot be trusted without an explicit user decision.");
             }
-            if (input.source() == InputSource.USER_OVERRIDE) {
-                return List.of("An AI calculation plan cannot claim a user override as an input.");
+            if (input.source() == InputSource.USER_OVERRIDE
+                    && (!input.approved() || input.evidence() == null || input.evidence().isBlank())) {
+                return List.of("A user-provided calculation input requires an explicit value and audit evidence.");
             }
             if ((input.source() == InputSource.CATALOG_DEFAULT
                     || input.source() == InputSource.CONTRACTOR_PROFILE)

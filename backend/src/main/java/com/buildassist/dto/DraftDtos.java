@@ -18,7 +18,25 @@ public final class DraftDtos {
                                         boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
                                         List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
                                         boolean gmailDraftCreated, DraftQuoteSnapshot quoteSnapshot,
-                                        CalculationStatus calculationStatus, BigDecimal netQuotePrice) {
+                                        CalculationStatus calculationStatus, BigDecimal netQuotePrice,
+                                        String taxRegime, BigDecimal vatRate, BigDecimal vatAmount,
+                                        BigDecimal grossQuotePrice, boolean taxConfigurationValid,
+                                        long draftVersion) {
+        public GenerateDraftResponse(
+                Long draftId, String draftBody, List<String> unmappedRequests,
+                List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
+                String clientName, String additionalNotes, boolean includeAdditionalNotes,
+                boolean vatRegistered, List<AiDtos.CoverageWorkItem> coverageItems,
+                List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
+                boolean gmailDraftCreated, DraftQuoteSnapshot quoteSnapshot,
+                CalculationStatus calculationStatus, BigDecimal netQuotePrice) {
+            this(draftId, draftBody, unmappedRequests, reviewWarnings, lineItems, clientName,
+                    additionalNotes, includeAdditionalNotes, vatRegistered, coverageItems,
+                    coverageWarnings, analysisFresh, gmailDraftCreated, quoteSnapshot,
+                    calculationStatus, netQuotePrice, vatRegistered ? "VAT_REGISTERED" : "AAM",
+                    null, null, null, !vatRegistered, 0);
+        }
+
         public GenerateDraftResponse(
                 Long draftId, String draftBody, List<String> unmappedRequests,
                 List<String> reviewWarnings, List<AiDtos.DraftLineItem> lineItems,
@@ -82,7 +100,23 @@ public final class DraftDtos {
                                    List<AiDtos.CoverageWorkItem> coverageItems,
                                    List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
                                    DraftQuoteSnapshot quoteSnapshot, CalculationStatus calculationStatus,
-                                   BigDecimal netQuotePrice) {
+                                   BigDecimal netQuotePrice, String taxRegime, BigDecimal vatRate,
+                                   BigDecimal vatAmount, BigDecimal grossQuotePrice,
+                                   boolean taxConfigurationValid, long draftVersion) {
+        public AnalysisResponse(
+                Long draftId, String clientName, List<AiDtos.DraftLineItem> lineItems,
+                List<String> unmappedRequests, List<String> reviewWarnings, String additionalNotes,
+                boolean includeAdditionalNotes, boolean vatRegistered,
+                List<AiDtos.CoverageWorkItem> coverageItems,
+                List<AiDtos.CoverageWarning> coverageWarnings, boolean analysisFresh,
+                DraftQuoteSnapshot quoteSnapshot, CalculationStatus calculationStatus,
+                BigDecimal netQuotePrice) {
+            this(draftId, clientName, lineItems, unmappedRequests, reviewWarnings, additionalNotes,
+                    includeAdditionalNotes, vatRegistered, coverageItems, coverageWarnings,
+                    analysisFresh, quoteSnapshot, calculationStatus, netQuotePrice,
+                    vatRegistered ? "VAT_REGISTERED" : "AAM", null, null, null,
+                    !vatRegistered, 0);
+        }
         public AnalysisResponse(
                 Long draftId, String clientName, List<AiDtos.DraftLineItem> lineItems,
                 List<String> unmappedRequests, List<String> reviewWarnings, String additionalNotes,
@@ -100,34 +134,101 @@ public final class DraftDtos {
 
     public record FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                        String additionalNotes, Boolean includeAdditionalNotes,
-                                       Boolean confirmIncomplete, String confirmedFingerprint) {
+                                       Boolean confirmIncomplete, String confirmedFingerprint,
+                                       Long expectedVersion) {
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems) {
-            this(clientName, lineItems, null, null, false, null);
+            this(clientName, lineItems, null, null, false, null, null);
         }
 
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                     String additionalNotes) {
-            this(clientName, lineItems, additionalNotes, null, false, null);
+            this(clientName, lineItems, additionalNotes, null, false, null, null);
         }
 
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                     String additionalNotes, Boolean includeAdditionalNotes) {
-            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, false, null);
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, false, null, null);
         }
 
         public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                     String additionalNotes, Boolean includeAdditionalNotes,
                                     Boolean confirmIncomplete) {
-            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, confirmIncomplete, null);
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, confirmIncomplete, null, null);
+        }
+
+        public FinalizeDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
+                                    String additionalNotes, Boolean includeAdditionalNotes,
+                                    Boolean confirmIncomplete, String confirmedFingerprint) {
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes,
+                    confirmIncomplete, confirmedFingerprint, null);
         }
     }
 
     public record SaveDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
-                                   String additionalNotes, Boolean includeAdditionalNotes) {
+                                   String additionalNotes, Boolean includeAdditionalNotes,
+                                   Long expectedVersion) {
         public SaveDraftRequest(String clientName, List<AiDtos.DraftLineItem> lineItems,
                                 String additionalNotes) {
-            this(clientName, lineItems, additionalNotes, null);
+            this(clientName, lineItems, additionalNotes, null, null);
         }
+
+        public SaveDraftRequest(
+                String clientName, List<AiDtos.DraftLineItem> lineItems,
+                String additionalNotes, Boolean includeAdditionalNotes) {
+            this(clientName, lineItems, additionalNotes, includeAdditionalNotes, null);
+        }
+    }
+
+    public record AddCatalogLineRequest(
+            String workId, Long catalogItemId, BigDecimal quantity, String unit, Long expectedVersion,
+            String unmappedId, List<MappingParameterValue> parameters) {
+        public AddCatalogLineRequest {
+            parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        }
+
+        public AddCatalogLineRequest(
+                String workId, Long catalogItemId, BigDecimal quantity, String unit, Long expectedVersion) {
+            this(workId, catalogItemId, quantity, unit, expectedVersion, null, List.of());
+        }
+
+        public AddCatalogLineRequest(
+                String workId, Long catalogItemId, BigDecimal quantity, String unit,
+                Long expectedVersion, String unmappedId) {
+            this(workId, catalogItemId, quantity, unit, expectedVersion, unmappedId, List.of());
+        }
+    }
+
+    public record MappingParameterValue(String id, BigDecimal value, String unit) {
+        public MappingParameterValue(String id, BigDecimal value) {
+            this(id, value, null);
+        }
+    }
+
+    public record MappingParameterDescriptor(
+            String id, String label, String unit, String displayUnit, BigDecimal value,
+            BigDecimal displayValue, boolean required,
+            String source, boolean editable) {
+    }
+
+    public record WorkMappingPreviewResponse(
+            String workId, String unmappedId, Long catalogItemId, String catalogItemName,
+            String outputUnit, List<MappingParameterDescriptor> parameters,
+            com.buildassist.calculation.CalculationStatus calculationStatus,
+            List<com.buildassist.calculation.CalculationIssue> issues) {
+        public WorkMappingPreviewResponse {
+            parameters = parameters == null ? List.of() : List.copyOf(parameters);
+            issues = issues == null ? List.of() : List.copyOf(issues);
+        }
+    }
+
+    public record AddManualLineRequest(
+            String name, BigDecimal quantity, String unit, BigDecimal netUnitPrice,
+            com.buildassist.calculation.CatalogItemType itemType, String workId, Long expectedVersion) {
+    }
+
+    public record UpdateManualLineRequest(
+            String name, BigDecimal quantity, String unit, BigDecimal netUnitPrice,
+            com.buildassist.calculation.CatalogItemType itemType, Long expectedVersion) {
     }
 
     public record UpdateDraftRequest(@NotBlank String draftBody) {

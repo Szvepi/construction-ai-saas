@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -48,6 +49,12 @@ public class CompanyProfile {
 
     @Column(name = "vat_registered", nullable = false)
     private boolean vatRegistered;
+
+    @Column(name = "tax_regime", nullable = false, length = 32)
+    private String taxRegime = "AAM";
+
+    @Column(name = "vat_rate", precision = 5, scale = 2)
+    private BigDecimal vatRate;
 
     @Column(name = "offer_terms", columnDefinition = "TEXT")
     private String offerTerms = DEFAULT_OFFER_TERMS;

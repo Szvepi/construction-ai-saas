@@ -56,6 +56,7 @@ public class QuoteCoverageService {
                 unresolved.add(work.name() + " – ellenőrizendő (" + work.calculationStatus() + ")");
             }
         }
+        duplicateChargeWarnings(snapshot, decisions).forEach(unresolved::add);
         warningItems.stream()
                 .filter(warning -> !warning.acknowledged())
                 .map(CoverageWarning::text)
@@ -126,13 +127,19 @@ public class QuoteCoverageService {
     public String lineItemFingerprint(
             DraftQuoteSnapshot snapshot, DraftQuoteSnapshot.QuoteLineSnapshot line) {
         return sha256(String.join("|",
-                Objects.toString(snapshot == null ? null : snapshot.fingerprint(), ""),
                 Objects.toString(line == null ? null : line.lineItemId(), ""),
+                Objects.toString(line == null ? null : line.workId(), ""),
                 Objects.toString(line == null ? null : line.catalogItemId(), ""),
                 Objects.toString(line == null || line.calculationResult() == null
                         ? null : line.calculationResult().status(), ""),
                 decimal(line == null ? null : line.customerChargeQuantity()),
-                decimal(line == null ? null : line.netLineTotal())));
+                decimal(line == null ? null : line.netLineTotal()),
+                decimal(line == null ? null : line.manualNetUnitPrice()),
+                Objects.toString(line == null ? null : line.manualPriceReason(), ""),
+                Objects.toString(line == null ? null : line.calculationPlan(), ""),
+                Objects.toString(line == null ? null : line.catalogItem(), ""),
+                Objects.toString(line == null ? null : line.requirements(), ""),
+                Boolean.toString(line != null && line.chargeable())));
     }
 
     public String analysisFingerprint(String emailBody, String additionalNotes) {
@@ -215,12 +222,17 @@ public class QuoteCoverageService {
                 .toList();
 
         CoverageStatus status = decisionStatus(snapshot, work, relatedLines, decision, linkedIds);
+        if ((decision == null || decision.status() != CoverageStatus.EXCLUDED)
+                && duplicateChargeWorkIds(snapshot, Set.of()).contains(work.workId())) {
+            status = CoverageStatus.NEEDS_REVIEW;
+        }
         CalculationStatus calculationStatus = combinedCalculationStatus(relatedLines);
         String linkedLineId = linkedIds.isEmpty() ? null : linkedIds.getFirst();
         String explanation = work.explanation();
         if (explanation == null || explanation.isBlank()) {
             explanation = work.originalRequest();
         }
+
         if (!work.unmappedLines().isEmpty()) {
             String unmappedDetails = work.unmappedLines().stream()
                     .map(line -> line.explanation() == null || line.explanation().isBlank()
@@ -243,6 +255,75 @@ public class QuoteCoverageService {
                 linkedIds,
                 work.recognitionStatus(),
                 calculationStatus);
+    }
+
+    public Set<String> duplicateChargeWorkIds(DraftQuoteSnapshot snapshot, Set<String> excludedWorkIds) {
+        if (snapshot == null) {
+            return Set.of();
+        }
+        Set<String> excluded = excludedWorkIds == null ? Set.of() : excludedWorkIds;
+        Set<String> duplicateWorkIds = new HashSet<>();
+        Map<String, List<DraftQuoteSnapshot.QuoteLineSnapshot>> byWork =
+                snapshot.lineItems().stream()
+                        .filter(DraftQuoteSnapshot.QuoteLineSnapshot::chargeable)
+                        .filter(line -> line.calculationResult() != null
+                                && line.calculationResult().status() == CalculationStatus.VALID)
+                        .filter(line -> !excluded.contains(line.workId()))
+                        .collect(Collectors.groupingBy(DraftQuoteSnapshot.QuoteLineSnapshot::workId));
+        byWork.forEach((workId, lines) -> {
+            for (int first = 0; first < lines.size(); first++) {
+                for (int second = first + 1; second < lines.size(); second++) {
+                    if (isCombinedComponentDoubleCharge(lines.get(first), lines.get(second))) {
+                        duplicateWorkIds.add(workId);
+                    }
+                }
+            }
+        });
+        return Set.copyOf(duplicateWorkIds);
+    }
+
+    public List<String> duplicateChargeWarnings(
+            DraftQuoteSnapshot snapshot, List<CoverageDecision> decisions) {
+        Set<String> excluded = decisions == null ? Set.of() : decisions.stream()
+                .filter(Objects::nonNull)
+                .filter(decision -> decision.status() == CoverageStatus.EXCLUDED)
+                .map(CoverageDecision::issueId)
+                .collect(Collectors.toSet());
+        return duplicateChargeWorkIds(snapshot, excluded).stream()
+                .map(workId -> "Egy kombinált ajánlati sor és egy külön anyag-/munkadíjsor ugyanazt a mennyiséget számolja el. "
+                        + "Ellenőrizd a(z) " + workId + " munkafázist.")
+                .toList();
+    }
+
+    private boolean isCombinedComponentDoubleCharge(
+            DraftQuoteSnapshot.QuoteLineSnapshot first,
+            DraftQuoteSnapshot.QuoteLineSnapshot second) {
+        DraftQuoteSnapshot.CatalogItemSnapshot firstItem = first.catalogItem();
+        DraftQuoteSnapshot.CatalogItemSnapshot secondItem = second.catalogItem();
+        if (firstItem == null || secondItem == null
+                || firstItem.itemType() == secondItem.itemType()
+                || (firstItem.itemType() != com.buildassist.calculation.CatalogItemType.COMBINED
+                && secondItem.itemType() != com.buildassist.calculation.CatalogItemType.COMBINED)) {
+            return false;
+        }
+        if (first.customerChargeQuantity() == null || second.customerChargeQuantity() == null) {
+            return false;
+        }
+        Set<com.buildassist.calculation.ChargeComponent> firstComponents = first.requirements().stream()
+                .map(DraftQuoteSnapshot.RequirementSnapshot::component)
+                .collect(Collectors.toSet());
+        boolean overlaps = second.requirements().stream()
+                .map(DraftQuoteSnapshot.RequirementSnapshot::component)
+                .anyMatch(firstComponents::contains);
+        if (!overlaps) {
+            return false;
+        }
+        try {
+            return first.customerChargeQuantity().convertTo(second.customerChargeQuantity().unit())
+                    .value().compareTo(second.customerChargeQuantity().value()) == 0;
+        } catch (IllegalArgumentException incompatibleUnits) {
+            return false;
+        }
     }
 
     private CoverageStatus decisionStatus(

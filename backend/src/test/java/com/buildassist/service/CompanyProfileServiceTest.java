@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -84,6 +85,40 @@ class CompanyProfileServiceTest {
 
         assertEquals("Minta Kft.", response.companyName());
         verify(companyProfileRepository).save(profile);
+    }
+
+    @Test
+    void rejectsVatRegisteredProfileWithoutExplicitRate() {
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest vat = new SaveCompanyProfileRequest(
+                base.companyName(), base.legalForm(), base.taxNumber(), base.euTaxNumber(),
+                base.offerorName(), base.offerorPhone(), base.postalCode(), base.city(),
+                base.streetName(), base.streetType(), base.houseNumber(), base.building(),
+                base.staircase(), base.floor(), base.door(), true, base.offerTerms(),
+                "VAT_REGISTERED", null);
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> companyProfileService.saveProfile(7L, vat));
+    }
+
+    @Test
+    void persistsExplicitVatRateWithoutHardcodingStandardRate() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(companyProfileRepository.save(any(CompanyProfile.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest vat = new SaveCompanyProfileRequest(
+                base.companyName(), base.legalForm(), base.taxNumber(), base.euTaxNumber(),
+                base.offerorName(), base.offerorPhone(), base.postalCode(), base.city(),
+                base.streetName(), base.streetType(), base.houseNumber(), base.building(),
+                base.staircase(), base.floor(), base.door(), true, base.offerTerms(),
+                "VAT_REGISTERED", new BigDecimal("18"));
+
+        CompanyProfileResponse response = companyProfileService.saveProfile(7L, vat);
+
+        assertEquals("VAT_REGISTERED", response.taxRegime());
+        assertEquals(new BigDecimal("18"), response.vatRate());
     }
 
     private SaveCompanyProfileRequest request(String euTaxNumber) {

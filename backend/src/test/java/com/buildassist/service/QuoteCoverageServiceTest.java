@@ -6,6 +6,7 @@ import com.buildassist.calculation.CalculationPlan;
 import com.buildassist.calculation.CalculationResult;
 import com.buildassist.calculation.CalculationStatus;
 import com.buildassist.calculation.CalculationStep;
+import com.buildassist.calculation.CatalogItemType;
 import com.buildassist.calculation.ChargeComponent;
 import com.buildassist.calculation.DraftQuoteSnapshot;
 import com.buildassist.calculation.InputSource;
@@ -93,6 +94,57 @@ class QuoteCoverageServiceTest {
         assertEquals(CoverageStatus.INCLUDED, view.get(0).status());
         assertTrue(view.get(0).userConfirmed());
         assertEquals("line-a", view.get(0).linkedLineItemId());
+    }
+
+    @Test
+    void flagsCombinedAndSeparateComponentDoubleChargeButAllowsSameCatalogAcrossWorks() {
+        DraftQuoteSnapshot.QuoteLineSnapshot labor = line(
+                "line-labor-separate", "work-a", 20, CalculationStatus.VALID);
+        DraftQuoteSnapshot.QuoteLineSnapshot combined = withCombinedComponents(
+                line("line-combined", "work-a", 20, CalculationStatus.VALID));
+        DraftQuoteSnapshot.QuoteLineSnapshot otherWorkSameCatalog = line(
+                "line-labor-other-work", "work-b", 8, CalculationStatus.VALID);
+        DraftQuoteSnapshot quote = snapshot(
+                List.of(work("work-a", "Konnektor szerelése", 20),
+                        work("work-b", "Kapcsoló szerelése", 8)),
+                List.of(combined, labor, otherWorkSameCatalog));
+
+        assertEquals(java.util.Set.of("work-a"), service.duplicateChargeWorkIds(quote, java.util.Set.of()));
+        assertEquals(CoverageStatus.NEEDS_REVIEW, service.evaluate(quote, List.of()).getFirst().status());
+        assertTrue(service.duplicateChargeWorkIds(quote, java.util.Set.of("work-a")).isEmpty());
+    }
+
+    @Test
+    void unrelatedSnapshotEditsDoNotInvalidateAnUnchangedLineApprovalFingerprint() {
+        DraftQuoteSnapshot.QuoteWorkSnapshot firstWork = work("work-a", "Konnektor", 20);
+        DraftQuoteSnapshot.QuoteLineSnapshot firstLine = line(
+                "line-a", "work-a", 20, CalculationStatus.VALID);
+        DraftQuoteSnapshot firstSnapshot = snapshot(List.of(firstWork), List.of(firstLine));
+        DraftQuoteSnapshot expandedSnapshot = snapshot(
+                List.of(firstWork, work("work-b", "Kapcsoló", 8)),
+                List.of(firstLine, line("line-b", "work-b", 8, CalculationStatus.VALID)));
+
+        assertEquals(service.lineItemFingerprint(firstSnapshot, firstLine),
+                service.lineItemFingerprint(expandedSnapshot, firstLine));
+    }
+
+    private DraftQuoteSnapshot.QuoteLineSnapshot withCombinedComponents(
+            DraftQuoteSnapshot.QuoteLineSnapshot original) {
+        Quantity quantity = original.customerChargeQuantity();
+        List<DraftQuoteSnapshot.RequirementSnapshot> requirements = List.of(
+                new DraftQuoteSnapshot.RequirementSnapshot(
+                        "req-combined-material", ChargeComponent.MATERIAL, quantity, quantity, quantity, null, null),
+                original.requirements().getFirst());
+        return new DraftQuoteSnapshot.QuoteLineSnapshot(
+                original.lineItemId(), original.workId(), original.catalogItemId(),
+                new DraftQuoteSnapshot.CatalogItemSnapshot(
+                        "Kombinált szerelés", "db", CatalogItemType.COMBINED,
+                        new BigDecimal("800"), null, null,
+                        com.buildassist.calculation.CatalogCalculationConfig.empty()),
+                original.settlementMode(), requirements, original.calculationPlan(),
+                original.calculationResult(), original.requiredQuantity(), original.procurementQuantity(),
+                original.customerChargeQuantity(), null, false, null, original.explanation(),
+                original.netLineTotal(), true, null, List.of());
     }
 
     private DraftQuoteSnapshot snapshot(

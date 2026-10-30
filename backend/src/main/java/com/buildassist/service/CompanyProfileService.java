@@ -6,6 +6,8 @@ import com.buildassist.model.CompanyProfile;
 import com.buildassist.model.User;
 import com.buildassist.repository.CompanyProfileRepository;
 import com.buildassist.repository.UserRepository;
+import java.math.BigDecimal;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,23 @@ public class CompanyProfileService {
 
     @Transactional
     public CompanyProfileResponse saveProfile(Long userId, SaveCompanyProfileRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("A céges adatok megadása kötelező.");
+        }
+        String taxRegime = request.taxRegime() == null || request.taxRegime().isBlank()
+                ? (request.vatRegistered() ? "VAT_REGISTERED" : "AAM")
+                : request.taxRegime().trim();
+        if (!Set.of("AAM", "VAT_REGISTERED", "REVERSE_CHARGE_UNSUPPORTED").contains(taxRegime)) {
+            throw new IllegalArgumentException("Nem támogatott adózási mód.");
+        }
+        BigDecimal vatRate = request.vatRate();
+        if ("VAT_REGISTERED".equals(taxRegime)) {
+            if (vatRate == null || vatRate.signum() <= 0 || vatRate.compareTo(new BigDecimal("100")) > 0) {
+                throw new IllegalArgumentException("ÁFA-körös vállalkozásnál 0 és 100 közötti ÁFA-kulcs szükséges.");
+            }
+        } else if (vatRate != null) {
+            throw new IllegalArgumentException("ÁFA-kulcs csak ÁFA-körös adózási módnál adható meg.");
+        }
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
@@ -49,7 +68,9 @@ public class CompanyProfileService {
         profile.setEuTaxNumber(normalizeOptional(request.euTaxNumber()));
         profile.setOfferorName(normalizeOptional(request.offerorName()));
         profile.setOfferorPhone(normalizeOptional(request.offerorPhone()));
-        profile.setVatRegistered(request.vatRegistered());
+        profile.setTaxRegime(taxRegime);
+        profile.setVatRegistered("VAT_REGISTERED".equals(taxRegime));
+        profile.setVatRate(vatRate);
         profile.setOfferTerms(request.offerTerms() != null ? normalizeOptional(request.offerTerms()) : CompanyProfile.DEFAULT_OFFER_TERMS);
         profile.setCountry(COUNTRY);
         profile.setPostalCode(request.postalCode().trim());
@@ -84,7 +105,9 @@ public class CompanyProfileService {
             profile.getFloor(),
             profile.getDoor(),
             profile.isVatRegistered(),
-            profile.getOfferTerms()
+            profile.getOfferTerms(),
+            profile.getTaxRegime(),
+            profile.getVatRate()
         );
     }
 

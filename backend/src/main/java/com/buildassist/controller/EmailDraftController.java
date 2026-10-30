@@ -42,6 +42,62 @@ public class EmailDraftController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{draftId}/lines")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> addCatalogLine(
+            @PathVariable Long draftId,
+            @Valid @RequestBody DraftDtos.AddCatalogLineRequest request) {
+        return ResponseEntity.ok(aiDraftService.addCatalogLine(
+                draftId, request, SecurityUtils.currentUserId()));
+    }
+
+    @GetMapping("/{draftId}")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> getDraft(@PathVariable Long draftId) {
+        return ResponseEntity.ok(aiDraftService.getDraft(draftId, SecurityUtils.currentUserId()));
+    }
+
+    @GetMapping("/{draftId}/work-mappings/preview")
+    public ResponseEntity<DraftDtos.WorkMappingPreviewResponse> previewWorkMapping(
+            @PathVariable Long draftId,
+            @RequestParam String workId,
+            @RequestParam Long catalogItemId,
+            @RequestParam(required = false) String unmappedId) {
+        return ResponseEntity.ok(aiDraftService.previewUnmappedWorkMapping(
+                draftId, workId, catalogItemId, unmappedId, SecurityUtils.currentUserId()));
+    }
+
+    @PostMapping("/{draftId}/work-mappings")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> mapUnmappedWork(
+            @PathVariable Long draftId,
+            @Valid @RequestBody DraftDtos.AddCatalogLineRequest request) {
+        return ResponseEntity.ok(aiDraftService.mapUnmappedWork(
+                draftId, request, SecurityUtils.currentUserId()));
+    }
+
+    @PostMapping("/{draftId}/manual-lines")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> addManualLine(
+            @PathVariable Long draftId,
+            @Valid @RequestBody DraftDtos.AddManualLineRequest request) {
+        return ResponseEntity.ok(aiDraftService.addManualLine(
+                draftId, request, SecurityUtils.currentUserId()));
+    }
+
+    @PutMapping("/{draftId}/manual-lines/{lineItemId}")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> updateManualLine(
+            @PathVariable Long draftId,
+            @PathVariable String lineItemId,
+            @Valid @RequestBody DraftDtos.UpdateManualLineRequest request) {
+        return ResponseEntity.ok(aiDraftService.updateManualLine(
+                draftId, lineItemId, request, SecurityUtils.currentUserId()));
+    }
+
+    @DeleteMapping("/{draftId}/lines/{lineItemId}")
+    public ResponseEntity<DraftDtos.GenerateDraftResponse> deleteLine(
+            @PathVariable Long draftId, @PathVariable String lineItemId,
+            @RequestParam Long expectedVersion) {
+        return ResponseEntity.ok(aiDraftService.deleteManualLine(
+                draftId, lineItemId, expectedVersion, SecurityUtils.currentUserId()));
+    }
+
     @PutMapping("/{draftId}/coverage/{issueId}")
     public ResponseEntity<DraftDtos.GenerateDraftResponse> updateCoverageDecision(
             @PathVariable Long draftId,
