@@ -36,21 +36,78 @@ public class GmailHistoryStateStore {
 
     @Transactional
     public Claim claim(Long userId) {
+        return claim(userId, true);
+    }
+
+    @Transactional
+    public Claim claim(Long userId, boolean allowManualRetry) {
         GmailConnection connection = connections.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new GmailBackfillException(
                         HttpStatus.CONFLICT, "GMAIL_NOT_CONNECTED", "Nincs csatlakoztatott Gmail-fiók."));
         Instant now = clock.instant();
+        if (connection.isGmailSyncAuthRequired()) {
+            return claim(connection, null, false, false, true);
+        }
+        if (connection.isGmailSyncRetryExhausted()) {
+            if (allowManualRetry || connection.getGmailSyncRetryAt() == null
+                    || !connection.getGmailSyncRetryAt().isAfter(now)) {
+                connection.setGmailSyncRetryExhausted(false);
+                connection.setGmailSyncRetryAttempts(0);
+                connection.setGmailSyncRetryAt(null);
+            } else {
+                return claim(connection, null, false, true);
+            }
+        }
+        if (connection.getGmailSyncRetryAt() != null && connection.getGmailSyncRetryAt().isAfter(now)) {
+            return claim(connection, null, true, false);
+        }
         if (connection.getHistorySyncLockId() != null
                 && connection.getHistorySyncLockUntil() != null
                 && connection.getHistorySyncLockUntil().isAfter(now)) {
             return claim(connection, null, true);
         }
+        if (connection.getBackfillLockId() != null
+                && connection.getBackfillLockUntil() != null
+                && connection.getBackfillLockUntil().isAfter(now)) {
+            return claim(connection, null, true);
+        }
 
+        connection.setGmailSyncRetryAt(null);
         UUID lockId = UUID.randomUUID();
         connection.setHistorySyncLockId(lockId);
         connection.setHistorySyncLockUntil(now.plus(LOCK_DURATION));
         connections.save(connection);
         return claim(connection, lockId, false);
+    }
+
+    @Transactional
+    public void defer(Long connectionId, UUID lockId, Instant retryAt, int maxAttempts) {
+        GmailConnection connection = requireLock(connectionId, lockId);
+        int attempts = connection.getGmailSyncRetryAttempts() + 1;
+        connection.setGmailSyncRetryAttempts(attempts);
+        connection.setGmailSyncRetryAt(retryAt);
+        connection.setGmailSyncRetryExhausted(attempts >= maxAttempts);
+        releaseLock(connection);
+        connections.save(connection);
+    }
+
+    @Transactional
+    public void allowRetry(Long userId) {
+        GmailConnection connection = connections.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new GmailBackfillException(
+                        HttpStatus.CONFLICT, "GMAIL_NOT_CONNECTED", "Nincs csatlakoztatott Gmail-fiók."));
+        connection.setGmailSyncRetryAttempts(0);
+        connection.setGmailSyncRetryAt(null);
+        connection.setGmailSyncRetryExhausted(false);
+        connections.save(connection);
+    }
+
+    @Transactional
+    public void markAuthenticationRequired(Long connectionId, UUID lockId) {
+        GmailConnection connection = requireLock(connectionId, lockId);
+        connection.setGmailSyncAuthRequired(true);
+        releaseLock(connection);
+        connections.save(connection);
     }
 
     @Transactional
@@ -92,7 +149,18 @@ public class GmailHistoryStateStore {
             connection.setHistorySyncPhase("HISTORY");
             connection.setHistorySyncPageToken(null);
         }
+        connection.setGmailSyncRetryAttempts(0);
+        connection.setGmailSyncRetryAt(null);
+        connection.setGmailSyncRetryExhausted(false);
         releaseLock(connection);
+        connections.save(connection);
+        return importedCount;
+    }
+
+    @Transactional
+    public int persistPartialEmails(Long connectionId, UUID lockId, List<Email> importedEmails) {
+        GmailConnection connection = requireLock(connectionId, lockId);
+        int importedCount = persistEmails(connectionId, importedEmails);
         connections.save(connection);
         return importedCount;
     }
@@ -159,9 +227,15 @@ public class GmailHistoryStateStore {
                 connection.setHistorySyncPageToken(null);
                 connection.setHistorySyncPhase(null);
                 connection.setHistorySyncBaselineId(null);
+                connection.setGmailSyncRetryAttempts(0);
+                connection.setGmailSyncRetryAt(null);
+                connection.setGmailSyncRetryExhausted(false);
             }
             clearPending(connection);
         }
+        connection.setGmailSyncRetryAttempts(0);
+        connection.setGmailSyncRetryAt(null);
+        connection.setGmailSyncRetryExhausted(false);
         releaseLock(connection);
         connections.save(connection);
         return importedCount;
@@ -196,7 +270,7 @@ public class GmailHistoryStateStore {
         GmailConnection connection = connections.findByIdForUpdate(connectionId)
                 .orElseThrow(() -> new GmailBackfillException(
                         HttpStatus.CONFLICT, "HISTORY_STATE_CHANGED", "A Gmail-kapcsolat állapota megváltozott."));
-        if (!lockId.equals(connection.getHistorySyncLockId())) {
+        if (lockId == null || !lockId.equals(connection.getHistorySyncLockId())) {
             throw new GmailBackfillException(
                     HttpStatus.CONFLICT, "HISTORY_LOCK_EXPIRED", "A Gmail-szinkronizáció zárolása lejárt.");
         }
@@ -204,6 +278,19 @@ public class GmailHistoryStateStore {
     }
 
     private Claim claim(GmailConnection connection, UUID lockId, boolean inProgress) {
+        return claim(connection, lockId, inProgress, false, false);
+    }
+
+    private Claim claim(GmailConnection connection, UUID lockId, boolean inProgress, boolean retryExhausted) {
+        return claim(connection, lockId, inProgress, retryExhausted, false);
+    }
+
+    private Claim claim(
+            GmailConnection connection,
+            UUID lockId,
+            boolean inProgress,
+            boolean retryExhausted,
+            boolean authenticationRequired) {
         return new Claim(
                 inProgress ? Status.IN_PROGRESS : Status.CLAIMED,
                 lockId,
@@ -219,7 +306,11 @@ public class GmailHistoryStateStore {
                 connection.getHistorySyncPendingPageToken(),
                 connection.getHistorySyncPendingHistoryId(),
                 pendingMessageIds(connection),
-                connection.getHistorySyncMessageOffset());
+                connection.getHistorySyncMessageOffset(),
+                connection.getGmailSyncRetryAt(),
+                connection.getGmailSyncRetryAttempts(),
+                retryExhausted,
+                authenticationRequired);
     }
 
     private List<String> pendingMessageIds(GmailConnection connection) {
@@ -244,7 +335,8 @@ public class GmailHistoryStateStore {
 
     public enum Status {
         CLAIMED,
-        IN_PROGRESS
+        IN_PROGRESS,
+        RETRY_EXHAUSTED
     }
 
     public record Claim(
@@ -262,6 +354,30 @@ public class GmailHistoryStateStore {
             String pendingPageToken,
             String pendingHistoryId,
             List<String> pendingMessageIds,
-            int messageOffset) {
+            int messageOffset,
+            Instant retryAt,
+            int retryAttempts,
+            boolean retryExhausted,
+            boolean authenticationRequired) {
+        public Claim(
+                Status status,
+                UUID lockId,
+                Long connectionId,
+                String gmailAddress,
+                String cursor,
+                String phase,
+                String baselineId,
+                Instant cutoff,
+                Integer policyMonths,
+                String query,
+                String pageToken,
+                String pendingPageToken,
+                String pendingHistoryId,
+                List<String> pendingMessageIds,
+                int messageOffset) {
+            this(status, lockId, connectionId, gmailAddress, cursor, phase, baselineId, cutoff,
+                    policyMonths, query, pageToken, pendingPageToken, pendingHistoryId,
+                    pendingMessageIds, messageOffset, null, 0, false, false);
+        }
     }
 }

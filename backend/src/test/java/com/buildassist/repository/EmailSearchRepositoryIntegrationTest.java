@@ -23,7 +23,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataJpaTest
@@ -195,7 +195,7 @@ class EmailSearchRepositoryIntegrationTest {
         assertEquals("[\"warning-accepted-zero-price\"]", restored.getAcknowledgedWarningsJson());
         assertEquals("0123456789abcdef", restored.getAnalysisFingerprint());
         assertEquals(snapshot, snapshotCodec.decode(restored.getQuoteSnapshotJson()));
-        assertNull(restored.getLineItemsJson());
+        assertNotNull(restored.getQuoteSnapshotJson());
         assertEquals(originalId, savedOriginal.getId());
         assertTrue(savedReanalysis.getId() > originalId);
     }

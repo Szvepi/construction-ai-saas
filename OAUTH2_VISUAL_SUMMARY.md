@@ -15,7 +15,7 @@ All Google OAuth2 with Gmail API access has been successfully implemented and te
    └── Auto-user creation & activation
 
 ✅ AUTHENTICATION ENDPOINTS
-   ├── GET /login/oauth2/authorization/google (initiate login)
+   ├── GET /oauth2/authorization/google (initiate login)
    ├── GET /login/oauth2/code/google (callback - auto-handled)
    └── GET /api/auth/user (get current user)
 
@@ -47,7 +47,7 @@ All Google OAuth2 with Gmail API access has been successfully implemented and te
 ┌────────────────────────────────────────────────────┐
 │              Frontend (Next.js)                     │
 │  - Google Login Button                             │
-│  - Redirect to /login/oauth2/authorization/google  │
+│  - Redirect to /oauth2/authorization/google  │
 └─────────────────────┬──────────────────────────────┘
                       │
         ┌─────────────┴────────────────┐
@@ -128,7 +128,7 @@ GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=yyy
 GOOGLE_REDIRECT_URI=http://localhost:8080/login/oauth2/code/google
 JWT_SECRET=<32+ character secret>
-DATABASE_URL=jdbc:postgresql://localhost:5432/buildassist
+DATABASE_URL=jdbc:postgresql://localhost:5432/mira_dev
 REDIS_HOST=localhost
 ```
 
@@ -162,7 +162,7 @@ curl http://localhost:8080/actuator/health
 # Expected: {"status":"UP"}
 
 # ✅ OAuth2 Flow (Manual)
-# Navigate to: http://localhost:8080/login/oauth2/authorization/google
+# Navigate to: http://localhost:8080/oauth2/authorization/google
 # Result: Redirected to Google login
 # After Google auth: JSON response with JWT token
 
@@ -226,7 +226,7 @@ npm install
 npm run dev
 
 # 5. Test OAuth2
-# Navigate to: http://localhost:8080/login/oauth2/authorization/google
+# Navigate to: http://localhost:8080/oauth2/authorization/google
 ```
 
 ## Security Features
@@ -306,4 +306,3 @@ Next agents should focus on:
 2. Draft generation with Claude
 3. Frontend OAuth2 integration
 4. Email persistence & management
-

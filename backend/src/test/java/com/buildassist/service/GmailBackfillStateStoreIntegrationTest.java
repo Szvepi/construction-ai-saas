@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -90,6 +91,42 @@ class GmailBackfillStateStoreIntegrationTest {
     }
 
     @Test
+    void historyAndLegacyBackfillCannotHoldOverlappingLeases() {
+        GmailConnection connection = saveConnection("shared-lease@example.com", "shared@gmail.com");
+
+        GmailHistoryStateStore.Claim history = historyStateStore.claim(connection.getUser().getId());
+        GmailBackfillStateStore.Claim blockedBackfill = stateStore.claim(connection.getUser().getId());
+        assertEquals(GmailBackfillStateStore.ClaimStatus.IN_PROGRESS, blockedBackfill.status());
+        historyStateStore.release(connection.getId(), history.lockId());
+
+        GmailBackfillStateStore.Claim backfill = stateStore.claim(connection.getUser().getId());
+        GmailHistoryStateStore.Claim blockedHistory = historyStateStore.claim(connection.getUser().getId());
+        assertEquals(GmailHistoryStateStore.Status.IN_PROGRESS, blockedHistory.status());
+        stateStore.release(connection.getId(), backfill.lockId());
+    }
+
+    @Test
+    void persistsRateLimitRetryTimeAndStopsBackgroundAttemptsWhenAuthenticationIsInvalid() {
+        GmailConnection connection = saveConnection("retry-owner@example.com", "retry@gmail.com");
+        Instant retryAt = Instant.now().plusSeconds(120);
+        GmailHistoryStateStore.Claim active = historyStateStore.claim(connection.getUser().getId());
+
+        historyStateStore.defer(connection.getId(), active.lockId(), retryAt, 8);
+        GmailHistoryStateStore.Claim waiting = historyStateStore.claim(connection.getUser().getId(), false);
+        assertEquals(retryAt, waiting.retryAt());
+        assertEquals(GmailHistoryStateStore.Status.IN_PROGRESS, waiting.status());
+
+        GmailConnection persisted = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
+        persisted.setGmailSyncRetryAt(Instant.now().minusSeconds(1));
+        gmailConnectionRepository.save(persisted);
+        GmailHistoryStateStore.Claim retry = historyStateStore.claim(connection.getUser().getId(), false);
+        historyStateStore.markAuthenticationRequired(connection.getId(), retry.lockId());
+        GmailHistoryStateStore.Claim authBlocked = historyStateStore.claim(connection.getUser().getId(), false);
+        assertTrue(authBlocked.authenticationRequired());
+        assertNull(authBlocked.lockId());
+    }
+
+    @Test
     void invalidatesLegacyUnboundedBackfillTokenAndKeepsStoredEmails() {
         GmailConnection connection = saveConnection("legacy-backfill@example.com", "legacy-backfill@gmail.com");
         connection.setBackfillPageToken("legacy-unbounded-token");
@@ -143,6 +180,40 @@ class GmailBackfillStateStoreIntegrationTest {
     }
 
     @Test
+    void exhaustedRetryCycleWaitsThenAutomaticallyResumesAfterItsPersistedCooldown() {
+        GmailConnection connection = saveConnection("retry-cycle@example.com", "retry-cycle@gmail.com");
+        GmailHistoryStateStore.Claim active = historyStateStore.claim(connection.getUser().getId());
+
+        for (int attempt = 1; attempt <= 8; attempt++) {
+            Instant retryAt = attempt == 8
+                    ? Instant.now().plusSeconds(120)
+                    : Instant.now().minusSeconds(1);
+            historyStateStore.defer(connection.getId(), active.lockId(), retryAt, 8);
+            active = historyStateStore.claim(connection.getUser().getId(), false);
+            if (attempt < 8) {
+                assertEquals(attempt, active.retryAttempts());
+                assertTrue(active.lockId() != null);
+            }
+        }
+
+        assertTrue(active.retryExhausted());
+        assertEquals(8, active.retryAttempts());
+        assertTrue(active.retryAt().isAfter(Instant.now()));
+        assertNull(active.lockId());
+
+        GmailConnection persisted = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
+        persisted.setGmailSyncRetryAt(Instant.now().minusSeconds(1));
+        gmailConnectionRepository.saveAndFlush(persisted);
+
+        GmailHistoryStateStore.Claim resumed = historyStateStore.claim(connection.getUser().getId(), false);
+        assertEquals(GmailHistoryStateStore.Status.CLAIMED, resumed.status());
+        assertTrue(resumed.lockId() != null);
+        assertEquals(0, resumed.retryAttempts());
+        assertFalse(resumed.retryExhausted());
+        historyStateStore.release(connection.getId(), resumed.lockId());
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void concurrentTransactionsCannotClaimSameConnectionTwice() throws Exception {
         String uniqueSuffix = java.util.UUID.randomUUID().toString();
@@ -176,7 +247,7 @@ class GmailBackfillStateStoreIntegrationTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void backfillAndHistoryRefreshCanPersistOverlappingBatchesConcurrently() throws Exception {
+    void backfillAndHistoryRefreshCannotClaimTheSameConnectionConcurrently() throws Exception {
         String suffix = java.util.UUID.randomUUID().toString();
         GmailConnection connection = saveConnection(
                 "cross-sync-" + suffix + "@example.com", "cross-sync-" + suffix + "@gmail.com");
@@ -194,60 +265,31 @@ class GmailBackfillStateStoreIntegrationTest {
 
             GmailBackfillStateStore.Claim backfill = backfillFuture.get(10, TimeUnit.SECONDS);
             GmailHistoryStateStore.Claim history = historyFuture.get(10, TimeUnit.SECONDS);
-            assertEquals(GmailBackfillStateStore.ClaimStatus.STARTED, backfill.status());
-            assertEquals(GmailHistoryStateStore.Status.CLAIMED, history.status());
-            assertNotEquals(backfill.lockId(), history.lockId());
+            boolean backfillClaimed = backfill.status() == GmailBackfillStateStore.ClaimStatus.STARTED;
+            boolean historyClaimed = history.status() == GmailHistoryStateStore.Status.CLAIMED;
+            assertNotEquals(backfillClaimed, historyClaimed);
 
             GmailConnection claimed = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
-            assertEquals(backfill.lockId(), claimed.getBackfillLockId());
-            assertEquals(history.lockId(), claimed.getHistorySyncLockId());
-
-            historyStateStore.beginScan(
-                    connection.getId(), history.lockId(), "h-baseline", Instant.parse("2026-04-22T00:00:00Z"),
-                    "primary-query", false);
-            historyStateStore.completeScanPage(connection.getId(), history.lockId(), List.of(), null);
-            GmailHistoryStateStore.Claim historyBatch = historyStateStore.claim(connection.getUser().getId());
-            historyStateStore.stageHistoryPage(
-                    connection.getId(), historyBatch.lockId(),
-                    List.of("shared-message", "history-only-message"), null, "h-committed");
-
-            CountDownLatch persistStart = new CountDownLatch(1);
-            Email sharedForBackfill = sampleEmail("shared-message");
-            Email backfillOnly = sampleEmail("backfill-only-message");
-            Email sharedForHistory = sampleEmail("shared-message");
-            Email historyOnly = sampleEmail("history-only-message");
-            var backfillPersist = executor.submit(() -> {
-                persistStart.await();
-                return stateStore.completePage(
-                        connection.getId(), backfill.lockId(),
-                        List.of(sharedForBackfill, backfillOnly), "backfill-next");
-            });
-            var historyPersist = executor.submit(() -> {
-                persistStart.await();
-                return historyStateStore.completeHistoryBatch(
-                        connection.getId(), historyBatch.lockId(),
-                        List.of(sharedForHistory, historyOnly), 2);
-            });
-            persistStart.countDown();
-
-            int backfillInserted = backfillPersist.get(10, TimeUnit.SECONDS);
-            int historyInserted = historyPersist.get(10, TimeUnit.SECONDS);
-            assertEquals(3, backfillInserted + historyInserted);
+            assertEquals(backfillClaimed, claimed.getBackfillLockId() != null);
+            assertEquals(historyClaimed, claimed.getHistorySyncLockId() != null);
+            if (backfillClaimed) {
+                assertNull(history.lockId());
+                assertEquals(GmailHistoryStateStore.Status.IN_PROGRESS, history.status());
+                stateStore.release(connection.getId(), backfill.lockId());
+            } else {
+                assertNull(backfill.lockId());
+                assertEquals(GmailBackfillStateStore.ClaimStatus.IN_PROGRESS, backfill.status());
+                historyStateStore.release(connection.getId(), history.lockId());
+            }
         }
 
-        List<Email> storedEmails = emailRepository.findByGmailConnectionId(connection.getId());
-        assertEquals(3, storedEmails.size());
-        assertEquals(3, storedEmails.stream().map(Email::getGmailMessageId).distinct().count());
-        GmailConnection completed = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
-        assertEquals("backfill-next", completed.getBackfillPageToken());
-        assertEquals("h-committed", completed.getHistorySyncCursor());
-        assertNull(completed.getHistorySyncPhase());
-        assertNull(completed.getBackfillLockId());
-        assertNull(completed.getHistorySyncLockId());
+        GmailConnection released = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
+        assertNull(released.getBackfillLockId());
+        assertNull(released.getHistorySyncLockId());
     }
 
     @Test
-    void failureAndRetryKeepTheOtherSyncCheckpointAndBothCursorsIndependent() {
+    void failureAndRetryPreserveIndependentSyncCursors() {
         String suffix = java.util.UUID.randomUUID().toString();
         GmailConnection connection = saveConnection(
                 "cross-sync-retry-" + suffix + "@example.com",
@@ -257,6 +299,16 @@ class GmailBackfillStateStoreIntegrationTest {
         assertEquals(0, stateStore.completePage(
                 connection.getId(), initialBackfill.lockId(), List.of(), "backfill-page-2"));
         GmailBackfillStateStore.Claim activeBackfill = stateStore.claim(connection.getUser().getId());
+
+        assertThrows(GmailBackfillException.class, () -> stateStore.completePage(
+                connection.getId(), null, List.of(), "must-not-commit"));
+        stateStore.release(connection.getId(), activeBackfill.lockId());
+        GmailBackfillStateStore.Claim retriedBackfill = stateStore.claim(connection.getUser().getId());
+        assertEquals(GmailBackfillStateStore.ClaimStatus.STARTED, retriedBackfill.status());
+        assertEquals("backfill-page-2", retriedBackfill.pageToken());
+        assertEquals(1, stateStore.completePage(
+                connection.getId(), retriedBackfill.lockId(), List.of(sampleEmail("backfill-retry-message")),
+                "backfill-page-3"));
 
         GmailHistoryStateStore.Claim initialHistory = historyStateStore.claim(connection.getUser().getId());
         historyStateStore.beginScan(
@@ -271,24 +323,11 @@ class GmailBackfillStateStoreIntegrationTest {
         assertEquals("h-baseline", activeHistory.baselineId());
         assertNull(activeHistory.cursor());
 
-        assertThrows(GmailBackfillException.class, () -> stateStore.completePage(
-                connection.getId(), java.util.UUID.randomUUID(), List.of(), "must-not-commit"));
-        GmailConnection afterBackfillFailure = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
-        assertEquals("backfill-page-2", afterBackfillFailure.getBackfillPageToken());
-        assertEquals("h-baseline", afterBackfillFailure.getHistorySyncBaselineId());
-        assertEquals("h-next", afterBackfillFailure.getHistorySyncPendingHistoryId());
-        assertEquals(activeHistory.lockId(), afterBackfillFailure.getHistorySyncLockId());
-
-        stateStore.release(connection.getId(), activeBackfill.lockId());
-        GmailBackfillStateStore.Claim retriedBackfill = stateStore.claim(connection.getUser().getId());
-        assertEquals(GmailBackfillStateStore.ClaimStatus.STARTED, retriedBackfill.status());
-        assertEquals("backfill-page-2", retriedBackfill.pageToken());
-
         assertThrows(GmailBackfillException.class, () -> historyStateStore.completeHistoryBatch(
-                connection.getId(), java.util.UUID.randomUUID(), List.of(), 1));
+                connection.getId(), null, List.of(), 1));
         GmailConnection afterHistoryFailure = gmailConnectionRepository.findById(connection.getId()).orElseThrow();
-        assertEquals("backfill-page-2", afterHistoryFailure.getBackfillPageToken());
-        assertEquals(retriedBackfill.lockId(), afterHistoryFailure.getBackfillLockId());
+        assertEquals("backfill-page-3", afterHistoryFailure.getBackfillPageToken());
+        assertNull(afterHistoryFailure.getBackfillLockId());
         assertNull(afterHistoryFailure.getHistorySyncCursor());
         assertEquals("h-next", afterHistoryFailure.getHistorySyncPendingHistoryId());
 
@@ -298,9 +337,6 @@ class GmailBackfillStateStoreIntegrationTest {
         assertEquals(List.of("history-retry-message"), retriedHistory.pendingMessageIds());
         assertEquals("h-next", retriedHistory.pendingHistoryId());
 
-        assertEquals(1, stateStore.completePage(
-                connection.getId(), retriedBackfill.lockId(), List.of(sampleEmail("backfill-retry-message")),
-                "backfill-page-3"));
         assertEquals(1, historyStateStore.completeHistoryBatch(
                 connection.getId(), retriedHistory.lockId(), List.of(sampleEmail("history-retry-message")), 1));
 
@@ -348,6 +384,39 @@ class GmailBackfillStateStoreIntegrationTest {
         assertNull(persistedBackfill.getHistorySyncCursor());
         assertEquals("other-user-h1", persistedHistory.getHistorySyncCursor());
         assertNull(persistedHistory.getBackfillPageToken());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void differentAccountsCanAcquireSyncLeasesConcurrently() throws Exception {
+        String suffix = java.util.UUID.randomUUID().toString();
+        GmailConnection first = saveConnection(
+                "parallel-user-a-" + suffix + "@example.com", "parallel-user-a-" + suffix + "@gmail.com");
+        GmailConnection second = saveConnection(
+                "parallel-user-b-" + suffix + "@example.com", "parallel-user-b-" + suffix + "@gmail.com");
+        Long firstUserId = first.getUser().getId();
+        Long secondUserId = second.getUser().getId();
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var firstClaim = executor.submit(() -> {
+                start.await();
+                return historyStateStore.claim(firstUserId);
+            });
+            var secondClaim = executor.submit(() -> {
+                start.await();
+                return historyStateStore.claim(secondUserId);
+            });
+            start.countDown();
+
+            GmailHistoryStateStore.Claim firstLease = firstClaim.get(10, TimeUnit.SECONDS);
+            GmailHistoryStateStore.Claim secondLease = secondClaim.get(10, TimeUnit.SECONDS);
+            assertEquals(GmailHistoryStateStore.Status.CLAIMED, firstLease.status());
+            assertEquals(GmailHistoryStateStore.Status.CLAIMED, secondLease.status());
+            assertNotEquals(firstLease.connectionId(), secondLease.connectionId());
+            historyStateStore.release(first.getId(), firstLease.lockId());
+            historyStateStore.release(second.getId(), secondLease.lockId());
+        }
     }
 
     private GmailConnection saveConnection(String userEmail, String gmailAddress) {

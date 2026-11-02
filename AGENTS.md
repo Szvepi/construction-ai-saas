@@ -40,7 +40,7 @@ Important config & runtime notes
   - `app.encryption.aes-key` (32-byte key expected)
   - `app.jwt.secret` (must be at least 32 chars for HMAC signing)
   - `spring.security.oauth2.client.registration.google.*` (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
-- OAuth2 Login Flow: `GET /login/oauth2/authorization/google` initiates login → redirects to Google → callback at `/login/oauth2/code/google` (auto-handled by Spring) → `OAuth2AuthenticationSuccessHandler` creates/updates user, generates JWT → frontend receives token in JSON response
+- OAuth2 Login Flow: `GET /oauth2/authorization/google` initiates login → redirects to Google → callback at `/login/oauth2/code/google` (auto-handled by Spring) → `OAuth2AuthenticationSuccessHandler` creates/updates user, generates JWT → frontend receives token in JSON response
 - Swagger UI: `http://localhost:8080/swagger-ui.html` exposes controllers/DTOs for quick inspection.
 
 Data model & persistence pointers
@@ -85,10 +85,9 @@ Data access patterns (models & repositories)
 - Decrypt tokens from `GmailConnection`: `tokenEncryptionService.decrypt(connection.getAccessTokenEncrypted())`
 
 OAuth2 & Gmail Integration
-- **Spring Security OAuth2 Login**: Configured in `SecurityConfig` and `application.yml` under `spring.security.oauth2.client.registration.google`. Users login via `GET /login/oauth2/authorization/google` → Spring auto-handles callback → `OAuth2AuthenticationSuccessHandler` creates user and issues JWT.
+- **Spring Security OAuth2 Login**: Configured in `SecurityConfig` and `application.yml` under `spring.security.oauth2.client.registration.google`. Users login via `GET /oauth2/authorization/google` → Spring auto-handles callback → `OAuth2AuthenticationSuccessHandler` creates user and issues JWT.
 - **Gmail API Access**: Use `GmailService.getOAuth2AccessToken(String principalName)` to retrieve access token from Spring Security context. Token is automatically managed and refreshed by Spring Security. Example: `Optional<String> token = gmailService.getOAuth2AccessToken(userEmail); if(token.isPresent()) { /* call Gmail API */ }`
 - **Required Scopes** (configured in `application.yml`): `openid`, `email`, `profile`, `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.compose`
 - **JWT Token Flow**: After successful OAuth2 login, JWT token is returned to frontend. Frontend includes in `Authorization: Bearer <token>` header for all API calls. Token contains userId and email. Expires after 24 hours (configurable).
 
 If you need more context, inspect `README.md` for environment and quick-start notes.
-

@@ -120,7 +120,7 @@ class DraftQuoteSnapshotCodecTest {
     }
 
     @Test
-    void draftPersistenceUsesOneQuoteLineSource() {
+    void draftPersistenceUsesStructuredQuoteSnapshot() {
         DraftQuoteSnapshotService service = new DraftQuoteSnapshotService(codec);
         DraftQuoteSnapshot snapshot = new DraftQuoteSnapshot(
                 DraftQuoteSnapshot.CURRENT_SCHEMA_VERSION,
@@ -132,8 +132,6 @@ class DraftQuoteSnapshotCodecTest {
         service.save(draft, sealed);
 
         assertEquals(sealed, service.load(draft));
-        draft.setLineItemsJson("[]");
-        assertThrows(IllegalStateException.class, () -> service.save(draft, sealed));
     }
 
     private DraftQuoteSnapshot.QuoteLineSnapshot line(

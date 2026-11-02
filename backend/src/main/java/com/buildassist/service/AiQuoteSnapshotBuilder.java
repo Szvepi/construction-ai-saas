@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -49,6 +50,7 @@ public final class AiQuoteSnapshotBuilder {
     private final ObjectMapper objectMapper;
     private final QuoteIdGenerator idGenerator;
 
+    @Autowired
     public AiQuoteSnapshotBuilder(ObjectMapper objectMapper) {
         this(new DeterministicQuantityCalculator(), new CostCalculationService(),
                 new CatalogCalculationConfigValidator(), objectMapper, new QuoteIdGenerator());

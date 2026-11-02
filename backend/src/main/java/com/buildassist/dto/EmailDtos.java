@@ -50,9 +50,23 @@ public final class EmailDtos {
             boolean complete,
             boolean inProgress,
             String phase,
-            String message) {
+            String message,
+            boolean waiting,
+            OffsetDateTime retryAt,
+            boolean reconnectRequired) {
+        public RefreshEmailsResponse(
+                int fetchedCount,
+                int processedCount,
+                boolean hasMore,
+                boolean complete,
+                boolean inProgress,
+                String phase,
+                String message) {
+            this(fetchedCount, processedCount, hasMore, complete, inProgress, phase, message, false, null, false);
+        }
+
         public RefreshEmailsResponse(int fetchedCount) {
-            this(fetchedCount, fetchedCount, false, true, false, "COMPLETE", "Frissítés befejeződött.");
+            this(fetchedCount, fetchedCount, false, true, false, "COMPLETE", "Frissítés befejeződött.", false, null, false);
         }
     }
 

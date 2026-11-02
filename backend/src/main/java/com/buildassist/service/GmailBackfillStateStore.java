@@ -58,6 +58,12 @@ public class GmailBackfillStateStore {
             }
             connection.setBackfillCompleted(false);
         }
+        if (connection.getHistorySyncLockId() != null
+                && connection.getHistorySyncLockUntil() != null
+                && connection.getHistorySyncLockUntil().isAfter(now)) {
+            return new Claim(ClaimStatus.IN_PROGRESS, null, connection.getId(),
+                    connection.getGmailAddress(), null, connection.getBackfillQuery());
+        }
         if (connection.getBackfillLockId() != null
                 && connection.getBackfillLockUntil() != null
                 && connection.getBackfillLockUntil().isAfter(now)) {
@@ -140,7 +146,7 @@ public class GmailBackfillStateStore {
         GmailConnection connection = gmailConnectionRepository.findByIdForUpdate(connectionId)
                 .orElseThrow(() -> new GmailBackfillException(
                         HttpStatus.CONFLICT, "BACKFILL_STATE_CHANGED", "A Gmail-kapcsolat állapota megváltozott."));
-        if (!lockId.equals(connection.getBackfillLockId())) {
+        if (lockId == null || !lockId.equals(connection.getBackfillLockId())) {
             throw new GmailBackfillException(
                     HttpStatus.CONFLICT, "BACKFILL_STATE_CHANGED", "A Gmail-betöltés zárolása lejárt.");
         }

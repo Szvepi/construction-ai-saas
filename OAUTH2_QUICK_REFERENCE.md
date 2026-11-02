@@ -35,7 +35,7 @@ cd frontend && npm install && npm run dev
 
 ### OAuth2 Login
 ```
-GET http://localhost:8080/login/oauth2/authorization/google
+GET http://localhost:8080/oauth2/authorization/google
 ```
 Redirects to Google login → back to `/login/oauth2/code/google` → returns JWT
 
@@ -95,7 +95,7 @@ public class EmailService {
 ```javascript
 // Simple approach: redirect to backend
 function loginWithGoogle() {
-    window.location.href = 'http://localhost:8080/login/oauth2/authorization/google';
+    window.location.href = 'http://localhost:8080/oauth2/authorization/google';
 }
 
 // After redirect, JWT is in response
@@ -166,7 +166,7 @@ mvn clean compile
 ### Test OAuth2 Flow
 ```bash
 # 1. Navigate to
-http://localhost:8080/login/oauth2/authorization/google
+http://localhost:8080/oauth2/authorization/google
 
 # 2. After Google login, you'll be redirected
 # Response contains JWT token
@@ -284,4 +284,3 @@ public class EmailService {
 - **Full Setup Guide:** `OAUTH2_SETUP.md`
 - **Implementation Details:** `OAUTH2_IMPLEMENTATION.md`
 - **Agent Guide:** `AGENTS.md`
-

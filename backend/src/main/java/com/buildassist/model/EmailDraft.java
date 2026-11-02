@@ -42,7 +42,7 @@ public class EmailDraft {
     private boolean includeAdditionalNotes = true;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 20)
     private DraftStatus status = DraftStatus.DRAFT;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -51,17 +51,8 @@ public class EmailDraft {
     @Column(name = "sent_at")
     private Instant sentAt;
 
-    @Column(name = "line_items", columnDefinition = "TEXT")
-    private String lineItemsJson;
-
     @Column(name = "review_warnings", columnDefinition = "TEXT")
     private String reviewWarningsJson;
-
-    @Column(name = "unmapped_requests", columnDefinition = "TEXT")
-    private String unmappedRequestsJson;
-
-    @Column(name = "requested_work_items", columnDefinition = "TEXT")
-    private String requestedWorkItemsJson;
 
     @Column(name = "coverage_decisions", columnDefinition = "TEXT")
     private String coverageDecisionsJson;

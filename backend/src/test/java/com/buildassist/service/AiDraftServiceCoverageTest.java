@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -90,7 +91,8 @@ class AiDraftServiceCoverageTest {
                 emailRepository, catalogItemRepository, companyProfileRepository,
                 gmailConnectionRepository, emailDraftRepository, tokenEncryptionService,
                 objectMapper, templateEngine, quotePdfService, quoteEmailMessageFactory,
-                coverageService, aiQuoteExtractionService, builder, snapshotService, pricingService);
+                coverageService, aiQuoteExtractionService, builder, snapshotService, pricingService,
+                mock(GmailApiClient.class));
 
         User user = new User();
         user.setId(USER_ID);
@@ -151,9 +153,6 @@ class AiDraftServiceCoverageTest {
         assertTrue(persisted.lineItems().getFirst().workId().startsWith("work-"));
         assertEquals(0, new BigDecimal("20").compareTo(
                 persisted.lineItems().getFirst().requiredQuantity().value()));
-        assertNull(savedDraft.getLineItemsJson());
-        assertNull(savedDraft.getRequestedWorkItemsJson());
-        assertNull(savedDraft.getUnmappedRequestsJson());
         assertEquals(response.quoteSnapshot(), persisted);
     }
 
@@ -187,7 +186,6 @@ class AiDraftServiceCoverageTest {
                 saved.quoteSnapshot().lineItems().getFirst().manualNetUnitPrice());
         assertEquals(new BigDecimal("3500"),
                 saved.quoteSnapshot().lineItems().getFirst().catalogItem().netSellingUnitPrice());
-        assertNull(savedDraft.getLineItemsJson());
     }
 
     @Test
@@ -211,7 +209,6 @@ class AiDraftServiceCoverageTest {
         assertEquals("snapshot-backed HTML", preview.draftBody());
         assertEquals(List.of((byte) 1, (byte) 2, (byte) 3),
                 java.util.stream.IntStream.range(0, pdf.length).mapToObj(index -> pdf[index]).toList());
-        assertNull(savedDraft.getLineItemsJson());
         verify(quotePdfService).render("snapshot-backed HTML");
     }
 

@@ -21,11 +21,6 @@ public final class DraftQuoteSnapshotService {
 
     public void save(EmailDraft draft, DraftQuoteSnapshot snapshot) {
         Objects.requireNonNull(draft, "draft");
-        if (draft.getLineItemsJson() != null && !draft.getLineItemsJson().isBlank()) {
-            throw new IllegalStateException(
-                    "A draft cannot persist legacy line items and a structured quote snapshot together.");
-        }
-        draft.setLineItemsJson(null);
         draft.setQuoteSnapshotJson(codec.encode(codec.seal(snapshot)));
     }
 

@@ -54,6 +54,7 @@ class GmailHistorySyncTest {
     private RestTemplate restTemplate;
     private MockRestServiceServer server;
     private GmailInboxSyncService syncService;
+    private int[] quotaUnitsInWindow;
 
     @BeforeEach
     void setUp() {
@@ -64,16 +65,26 @@ class GmailHistorySyncTest {
         emailRepository = mock(EmailRepository.class);
         restTemplate = new RestTemplate();
         server = MockRestServiceServer.bindTo(restTemplate).build();
-        GmailSyncWindow window = new GmailSyncWindow(new AppProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+        AppProperties properties = new AppProperties();
+        quotaUnitsInWindow = new int[] {0};
+        GmailSyncWindow window = new GmailSyncWindow(properties, Clock.fixed(NOW, ZoneOffset.UTC));
         syncService = new GmailInboxSyncService(
-                backfillStateStore,
                 historyStateStore,
                 gmailService,
                 emailService,
                 emailRepository,
                 window,
-                restTemplate,
-                new ObjectMapper());
+                new GmailApiClient((connectionId, operation) -> {
+                    int cost = operation.quotaUnits(properties.getGmail());
+                    if (quotaUnitsInWindow[0] + cost > 4_800) {
+                        throw new GmailRateLimitDeferredException(NOW.plusSeconds(60), "quota");
+                    }
+                    quotaUnitsInWindow[0] += cost;
+                    return () -> { };
+                }, restTemplate, new ObjectMapper()),
+                new ObjectMapper(),
+                new GmailRetryPolicy(properties),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         when(gmailService.getOAuth2AccessToken("owner@gmail.com")).thenReturn(Optional.of("access-token"));
     }
 
@@ -103,10 +114,17 @@ class GmailHistorySyncTest {
 
         assertEquals(2, result.fetchedCount());
         assertEquals(3, result.processedCount());
-        assertTrue(result.hasMore());
-        assertFalse(result.complete());
+        assertFalse(result.hasMore());
+        assertTrue(result.complete());
+        assertEquals("INITIAL_COMPLETE", result.phase());
+        org.mockito.ArgumentCaptor<String> queryCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
         verify(historyStateStore).beginScan(
-                eq(CONNECTION_ID), eq(LOCK_ID), eq("h-start"), eq(CUTOFF), anyString(), eq(false));
+                eq(CONNECTION_ID), eq(LOCK_ID), eq("h-start"), eq(CUTOFF), queryCaptor.capture(), eq(false));
+        assertEquals(
+                "label:INBOX category:primary -category:promotions -category:social "
+                        + "-category:updates -in:spam -in:trash after:1776880799",
+                queryCaptor.getValue());
         verify(emailService, never()).categorizeMessage(any(), eq("before"));
         verify(emailService).categorizeMessage(any(), eq("exact"));
         verify(emailService).categorizeMessage(any(), eq("after"));
@@ -152,6 +170,44 @@ class GmailHistorySyncTest {
     }
 
     @Test
+    void processesTwoHundredMessagesInQuotaBoundedResumableBatches() {
+        List<String> ids = java.util.stream.IntStream.range(0, 200).mapToObj(i -> "bulk-" + i).toList();
+        when(historyStateStore.claim(USER_ID))
+                .thenReturn(claim("h1", "HISTORY", null, CUTOFF, null, ids, 0, "h2"))
+                .thenReturn(claim("h1", "HISTORY", null, CUTOFF, null, ids, 50, "h2"))
+                .thenReturn(claim("h1", "HISTORY", null, CUTOFF, null, ids, 100, "h2"))
+                .thenReturn(claim("h1", "HISTORY", null, CUTOFF, null, ids, 150, "h2"));
+        ids.forEach(id -> {
+            mockMetadata(id, NOW, true);
+            stubSpamEmail(id);
+        });
+        when(historyStateStore.completeHistoryBatch(eq(CONNECTION_ID), eq(LOCK_ID), any(), eq(50)))
+                .thenReturn(50);
+
+        RefreshEmailsResponse first = syncService.refresh(USER_ID);
+        assertEquals(3_000, quotaUnitsInWindow[0]);
+        quotaUnitsInWindow[0] = 0;
+        RefreshEmailsResponse second = syncService.refresh(USER_ID);
+        assertEquals(3_000, quotaUnitsInWindow[0]);
+        quotaUnitsInWindow[0] = 0;
+        RefreshEmailsResponse third = syncService.refresh(USER_ID);
+        assertEquals(3_000, quotaUnitsInWindow[0]);
+        quotaUnitsInWindow[0] = 0;
+        RefreshEmailsResponse last = syncService.refresh(USER_ID);
+        assertEquals(3_000, quotaUnitsInWindow[0]);
+
+        assertEquals(50, first.processedCount());
+        assertEquals(50, second.processedCount());
+        assertEquals(50, third.processedCount());
+        assertEquals(50, last.processedCount());
+        assertFalse(last.hasMore());
+        assertTrue(last.complete());
+        verify(emailRepository, org.mockito.Mockito.times(200))
+                .existsByGmailConnectionIdAndGmailMessageId(eq(CONNECTION_ID), anyString());
+        server.verify();
+    }
+
+    @Test
     void expiredHistoryCursorStartsSixMonthRecoveryAndKeepsNewArrivalsCatchable() {
         when(historyStateStore.claim(USER_ID)).thenReturn(
                 claim("expired", "HISTORY", null, CUTOFF, null, List.of(), 0));
@@ -167,8 +223,9 @@ class GmailHistorySyncTest {
 
         RefreshEmailsResponse result = syncService.refresh(USER_ID);
 
-        assertTrue(result.hasMore());
-        assertFalse(result.complete());
+        assertFalse(result.hasMore());
+        assertTrue(result.complete());
+        assertEquals("INITIAL_COMPLETE", result.phase());
         verify(historyStateStore).beginScan(
                 eq(CONNECTION_ID), eq(LOCK_ID), eq("h-recovery"), eq(CUTOFF), anyString(), eq(true));
         server.verify();
@@ -201,6 +258,51 @@ class GmailHistorySyncTest {
         verify(emailService, never()).categorizeMessage(any(), anyString());
         verify(emailRepository).existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "old-primary");
         verify(emailRepository).existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "not-primary");
+        server.verify();
+    }
+
+    @Test
+    void fullMessageFetchKeepsAiBodyAndDoesNotRefetchStoredHistoryMessages() {
+        when(historyStateStore.claim(USER_ID))
+                .thenReturn(claim("h1", "HISTORY", null, CUTOFF, null,
+                        List.of("stored-message", "new-message"), 0, "h2"));
+        when(emailRepository.existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "stored-message"))
+                .thenReturn(true);
+        when(emailRepository.existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "new-message"))
+                .thenReturn(false);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/messages/new-message?format=full")))
+                .andRespond(withSuccess("""
+                        {"internalDate":"1792680000000","labelIds":["INBOX","CATEGORY_PERSONAL"],
+                         "payload":{"headers":[{"name":"Subject","value":"Árajánlat"},
+                           {"name":"From","value":"customer@example.com"}],
+                           "body":{"data":"cXVvdGUtcmVxdWVzdC1ib2R5"}}}
+                        """, APPLICATION_JSON));
+        when(emailService.categorizeMessage(any(), eq("new-message"))).thenReturn(EmailCategory.QUOTE_REQUEST);
+        when(emailService.createEmailFromGmailResponse(
+                eq(null), eq("new-message"), any(), any(), eq(EmailCategory.QUOTE_REQUEST)))
+                .thenAnswer(invocation -> {
+                    Email email = new Email();
+                    email.setGmailMessageId("new-message");
+                    email.setCategory(EmailCategory.QUOTE_REQUEST);
+                    email.setBodyText("quote-request-body");
+                    return email;
+                });
+        when(historyStateStore.completeHistoryBatch(eq(CONNECTION_ID), eq(LOCK_ID), any(), eq(2)))
+                .thenReturn(1);
+
+        RefreshEmailsResponse response = syncService.refresh(USER_ID);
+
+        assertEquals(1, response.fetchedCount());
+        assertTrue(response.complete());
+        verify(emailService).categorizeMessage(any(), eq("new-message"));
+        org.mockito.ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> fullMessage =
+                org.mockito.ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(emailService).createEmailFromGmailResponse(
+                eq(null), eq("new-message"), any(), fullMessage.capture(), eq(EmailCategory.QUOTE_REQUEST));
+        assertEquals("cXVvdGUtcmVxdWVzdC1ib2R5",
+                fullMessage.getValue().path("payload").path("body").path("data").asText());
+        verify(emailService, never()).categorizeMessage(any(), eq("stored-message"));
         server.verify();
     }
 
@@ -250,13 +352,13 @@ class GmailHistorySyncTest {
         String labelJson = labels.stream()
                 .map(label -> "\"" + label + "\"")
                 .collect(java.util.stream.Collectors.joining(","));
-        server.expect(requestTo(org.hamcrest.Matchers.containsString("/messages/" + id + "?format=metadata")))
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/messages/" + id + "?format=full")))
                 .andRespond(withSuccess("""
                         {"internalDate":"%d","labelIds":[%s],"payload":{"headers":[
                           {"name":"Subject","value":"Newsletter"},
                           {"name":"From","value":"news@example.com"},
                           {"name":"List-ID","value":"news.example.com"}
-                        ]}}
+                        ],"body":{"data":"c3VwZXJmbHVvdXMtdGVzdC1ib2R5"}}}
                         """.formatted(receivedAt.toEpochMilli(), labelJson), APPLICATION_JSON));
     }
 

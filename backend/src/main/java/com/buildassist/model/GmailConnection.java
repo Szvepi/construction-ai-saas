@@ -90,4 +90,16 @@ public class GmailConnection {
     @Column(name = "history_sync_lock_until")
     private Instant historySyncLockUntil;
 
+    @Column(name = "gmail_sync_retry_at")
+    private Instant gmailSyncRetryAt;
+
+    @Column(name = "gmail_sync_retry_attempts", nullable = false)
+    private int gmailSyncRetryAttempts;
+
+    @Column(name = "gmail_sync_retry_exhausted", nullable = false)
+    private boolean gmailSyncRetryExhausted;
+
+    @Column(name = "gmail_sync_auth_required", nullable = false)
+    private boolean gmailSyncAuthRequired;
+
 }

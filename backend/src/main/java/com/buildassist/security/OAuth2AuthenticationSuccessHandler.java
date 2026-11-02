@@ -94,9 +94,6 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             if (frontendUrl == null || frontendUrl.isEmpty()) {
                 frontendUrl = "http://localhost:3000";
             }
-            String redirect = frontendUrl + "/auth/oauth-callback#token=" + token + "&email=" + java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8);
-            logger.info("OAuth2 success - redirecting to frontend callback: " + redirect);
-
             // Some environments / proxies may strip URL fragments on Location redirects.
             // To ensure the browser ends up with the fragment, return a small HTML page
             // that performs a client-side navigation to the desired URL (preserves fragment).
@@ -151,6 +148,10 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             conn.setGmailAddress(email);
             conn.setAccessTokenEncrypted(tokenEncryptionService.encrypt(accessTokenValue));
             conn.setRefreshTokenEncrypted(tokenEncryptionService.encrypt(refreshTokenValue));
+            conn.setGmailSyncAuthRequired(false);
+            conn.setGmailSyncRetryAttempts(0);
+            conn.setGmailSyncRetryAt(null);
+            conn.setGmailSyncRetryExhausted(false);
             
             // Set token expiry
             if (accessToken.getExpiresAt() != null) {
@@ -160,10 +161,9 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             }
 
             gmailConnectionRepository.save(conn);
-            logger.info("GmailConnection saved for user " + user.getId() + " with email " + email);
+            logger.info("Gmail connection saved for user " + user.getId());
         } catch (Exception e) {
             throw new RuntimeException("Failed to save GmailConnection", e);
         }
     }
 }
-

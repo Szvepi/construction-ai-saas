@@ -45,9 +45,6 @@ import jakarta.mail.internet.MimeMessage;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -72,7 +69,7 @@ public class AiDraftService {
     private final EmailDraftRepository emailDraftRepository;
     private final TokenEncryptionService tokenEncryptionService;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private final GmailApiClient gmailApiClient;
     private final SpringTemplateEngine templateEngine;
     private final QuotePdfService quotePdfService;
     private final QuoteEmailMessageFactory quoteEmailMessageFactory;
@@ -98,7 +95,8 @@ public class AiDraftService {
             AiQuoteExtractionService aiQuoteExtractionService,
             AiQuoteSnapshotBuilder snapshotBuilder,
             DraftQuoteSnapshotService snapshotService,
-            DraftQuotePricingService pricingService) {
+            DraftQuotePricingService pricingService,
+            GmailApiClient gmailApiClient) {
         this.emailRepository = emailRepository;
         this.catalogItemRepository = catalogItemRepository;
         this.companyProfileRepository = companyProfileRepository;
@@ -106,7 +104,7 @@ public class AiDraftService {
         this.emailDraftRepository = emailDraftRepository;
         this.tokenEncryptionService = tokenEncryptionService;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newHttpClient();
+        this.gmailApiClient = gmailApiClient;
         this.templateEngine = templateEngine;
         this.quotePdfService = quotePdfService;
         this.quoteEmailMessageFactory = quoteEmailMessageFactory;
@@ -159,9 +157,6 @@ public class AiDraftService {
         draft.setAdditionalNotes(normalizedNotes);
         draft.setIncludeAdditionalNotes(true);
         draft.setStatus(EmailDraft.DraftStatus.PENDING_REVIEW);
-        draft.setLineItemsJson(null);
-        draft.setUnmappedRequestsJson(null);
-        draft.setRequestedWorkItemsJson(null);
         draft.setReviewWarningsJson(writeJson(build.reviewWarnings()));
         draft.setCoverageDecisionsJson("[]");
         draft.setAcknowledgedWarningsJson("[]");
@@ -1703,17 +1698,14 @@ public class AiDraftService {
         String encodedMessage = Base64.getUrlEncoder().encodeToString(buffer.toByteArray());
         String payload = objectMapper.writeValueAsString(Map.of(
                 "message", Map.of("raw", encodedMessage)));
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://www.googleapis.com/gmail/v1/users/me/drafts"))
-                .header("Authorization", "Bearer " + accessToken)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(payload))
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 400) {
-            throw new IllegalStateException("Gmail draft creation failed with HTTP " + response.statusCode() + ".");
-        }
-        JsonNode responseJson = objectMapper.readTree(response.body());
+        var response = gmailApiClient.post(
+                gmailConnection.getId(),
+                accessToken,
+                URI.create("https://www.googleapis.com/gmail/v1/users/me/drafts"),
+                payload,
+                GmailApiOperation.DRAFTS_CREATE,
+                1);
+        JsonNode responseJson = objectMapper.readTree(response.getBody());
         if (responseJson.path("id").asText().isBlank()) {
             throw new IllegalStateException("Gmail did not return a draft identifier.");
         }

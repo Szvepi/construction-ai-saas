@@ -46,12 +46,50 @@ Use **localhost** for DB/Redis in `.env` (defaults in `application.yml` match):
 
 | Variable       | Local dev value                                |
 |----------------|------------------------------------------------|
-| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/buildassist` |
+| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/mira_dev` |
 | `GMAIL_SYNC_WINDOW_MONTHS` | `6` (limits new Gmail imports; existing stored emails remain searchable) |
+| `GMAIL_PROJECT_QUOTA_UNITS_PER_MINUTE` | `1200000` (must match this Google Cloud project's configured Gmail quota) |
+| `GMAIL_USER_QUOTA_UNITS_PER_MINUTE` | `6000` (override for projects with a different per-user quota) |
+| `GMAIL_QUOTA_SAFETY_MARGIN` | `0.2` (quota units held in reserve) |
+| `GMAIL_GET_METADATA_QUOTA_UNITS` | `20` (Gmail `messages.get?format=metadata`) |
+| `GMAIL_GET_FULL_QUOTA_UNITS` | `60` (Gmail `messages.get?format=full`) |
 | `REDIS_HOST`   | `localhost`                                    |
 | `REDIS_PORT`   | `6379`                                         |
 
 The Docker `app` service overrides these to `postgres` / `redis` hostnames internally.
+
+Gmail API calls go through a Redis-coordinated quota limiter. It accounts for per-method
+quota-unit costs, the configured project and per-user limits, a safety margin, and one
+in-flight request per Gmail account. Configure the quota values from the actual Google
+Cloud project; older projects may have different limits. The used methods cost 5 units
+for `messages.list`, 20 for `messages.get?format=metadata`, 60 for
+`messages.get?format=full`, 2 for `history.list`, 1 for `getProfile`, and 10 for
+`drafts.create`; no `threads.get` call is used. Initial import is newest-first
+within the six-month window and continues in the backend after the browser is closed.
+Each background task advances one Gmail page, and the scheduler submits at most four
+accounts at once so a backlog of older pages cannot fill an unbounded worker queue.
+Rate-limit responses are checkpointed and resumed with `Retry-After`-aware exponential
+backoff and jitter. After eight consecutive transient failures, a retry cycle is logged
+as an operational error and automatically resumes after the capped 15-minute delay
+(or a longer Gmail `Retry-After`, if supplied);
+successful progress resets the retry counter. Authentication failures wait for Gmail
+reconnection instead. Gmail `messages.get` requests use one `format=full` fetch per new
+message, which includes the metadata needed for filtering and categorization.
+
+The six-month initial query is restricted to `label:INBOX category:primary`, excluding
+Promotions, Social, Updates, spam, and trash; archived and Sent messages are not part of
+this inbox import. The Gmail `nextPageToken` is the authoritative continuation marker:
+short pages, already-imported IDs, and `resultSizeEstimate` do not end a scan. A page
+checkpoint advances only after every returned ID was imported or explicitly skipped and
+the database writes succeeded. Invalid or interrupted pages leave the current token in
+place so a retry can safely resume without duplicating stored messages.
+
+Sync events (`SYNC_STARTED`, page request/receipt/save, message skip/failure, retry,
+resume, completion, and failure) are written to the Spring Boot console at INFO/WARN/
+ERROR. The logs include the Gmail connection ID and cursor-presence/offset state, but
+never full page tokens, message content, addresses, or OAuth tokens. A completed
+six-month initial import is reported separately from a later History refresh that found
+no new messages.
 
 ### 2. Database & Redis (Docker)
 
@@ -68,7 +106,7 @@ Verify:
 
 ```bash
 docker compose ps
-# psql: docker compose exec postgres psql -U buildassist -d buildassist
+# psql: docker compose exec postgres psql -U buildassist -d mira_dev
 # redis: docker compose exec redis redis-cli ping
 ```
 
@@ -136,11 +174,45 @@ The quote analysis response includes `coverageItems`, `coverageWarnings`, and `a
 
 ## Database
 
-Flyway migrations are in `backend/src/main/resources/db/migration/`. `V15__draft_quote_coverage.sql` adds nullable JSON/text columns for requested work, coverage decisions, warning acknowledgements, the analysis fingerprint, and an optimistic-lock version; old drafts remain readable.
+The current schema is created by the single `backend/src/main/resources/db/migration/V1__init_schema.sql` Flyway migration. Hibernate uses `ddl-auto: validate`; schema creation and updates are owned by Flyway, not by Hibernate.
 
-`V4__update_email_drafts_status_check.sql` uses `ADD COLUMN IF NOT EXISTS` because `unmapped_requests` was already added by V3. Databases that already applied the previous V4 contents need a one-time, operator-approved Flyway `repair` to update the V4 checksum before starting the updated application. Take a backup and verify the migration history first; do not run repair automatically during normal startup. The repair updates Flyway history metadata only and does not rerun the migration or change application data.
+The consolidated V1 creates `users`, `gmail_connections`, `emails`, `email_drafts`, `company_profiles`, and `catalog_items`, including Gmail backfill/history state, company tax/VAT settings, catalog pricing and calculation configuration, and the snapshot-backed draft, coverage, fingerprint, and optimistic-version fields. `email_drafts.quote_snapshot` is the sole quote-line/work representation. The old `line_items`, `unmapped_requests`, `requested_work_items`, and `catalog_items.calculation_strategy` columns are not part of this schema.
 
-Tables: `users`, `gmail_connections`, `emails`, `email_drafts`
+### Create a clean local database
+
+The commands below create the `mira_dev` database and do not drop or reset an existing database. If the name already exists, stop and inspect it rather than deleting it.
+
+```powershell
+docker compose up -d postgres redis
+docker compose exec -T postgres psql -U buildassist -d postgres -v ON_ERROR_STOP=1 `
+  -c "CREATE DATABASE mira_dev OWNER buildassist;"
+$env:DATABASE_URL = "jdbc:postgresql://localhost:5432/mira_dev"
+mvn -f backend\pom.xml spring-boot:run
+```
+
+Flyway applies V1 at startup and Hibernate validates the resulting schema. To apply the optional development catalog fixture, first sign in through Google OAuth so the application creates a local user, then run the fixture against this database with that user's email:
+
+```powershell
+$seedEmail = Read-Host "Google account email used for local sign-in"
+$seed = Get-Content backend\src\test\resources\db\seed\phase4_catalog_seed.sql -Raw
+$seed | docker compose exec -T postgres psql -U buildassist -d mira_dev `
+  -v ON_ERROR_STOP=1 -v "seed_email=$seedEmail"
+```
+
+The fixture explicitly adds 14 net-priced paving, painting, and electrical catalog items only to the selected existing user's catalog. These prices and defaults (including 15 cm crushed-stone thickness and paint coverage/package-size settings) are development examples, not real contractor prices. First sign in through Google OAuth at `http://localhost:3000`; the OAuth success handler creates the local user. Then run the fixture against `mira_dev`, passing the email returned by Google as `seed_email`. It is not run at application startup or during OAuth login; repeated runs do not add another copy of a fixture item with the same name.
+
+### Backend tests
+
+The `test` Spring profile defaults its URL to `jdbc:postgresql://localhost:5432/mira_test`, requires explicit `TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`, and runs Flyway with Hibernate schema validation. Point the test variables at a separate, empty test database; do not point them at the normal development database. The profile never falls back to `mira_dev`.
+
+```powershell
+$env:TEST_DATABASE_URL = "jdbc:postgresql://localhost:5432/mira_test"
+$env:TEST_DATABASE_USERNAME = "<test-only-role>"
+$env:TEST_DATABASE_PASSWORD = "<test-only-password>"
+mvn -f backend\pom.xml '-Dspring.profiles.active=test' test
+```
+
+The historical V1–V19 migration chain has been replaced by the clean V1. A local database that already applied any historical migration is not compatible with this new chain; Flyway `repair` must not be used to mask that schema mismatch. Rebuilding the normal local database is a separate, deliberate cutover: back it up if useful, stop the application, verify the target database name, and recreate it only with explicit operator approval. This change does not reset or modify that database automatically.
 
 ### Manual verification: quote coverage and Gmail confirmation
 

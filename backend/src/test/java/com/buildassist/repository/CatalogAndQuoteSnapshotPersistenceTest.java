@@ -23,7 +23,6 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -109,7 +108,7 @@ class CatalogAndQuoteSnapshotPersistenceTest {
     }
 
     @Test
-    void preventsDuplicateLegacyAndStructuredQuoteLineSources() {
+    void persistsStructuredQuoteSnapshotAsTheOnlyQuoteLineSource() {
         User user = saveUser("snapshot-source@example.test");
         GmailConnection connection = new GmailConnection();
         connection.setUser(user);
@@ -130,14 +129,15 @@ class CatalogAndQuoteSnapshotPersistenceTest {
         EmailDraft draft = new EmailDraft();
         draft.setEmail(email);
         draft.setDraftBody("Draft");
-        draft.setLineItemsJson("[]");
         DraftQuoteSnapshotCodec codec = new DraftQuoteSnapshotCodec(objectMapper);
-        draft.setQuoteSnapshotJson(codec.encode(codec.seal(
-                new DraftQuoteSnapshot(DraftQuoteSnapshot.CURRENT_SCHEMA_VERSION,
-                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        List.of(), List.of()))));
+        DraftQuoteSnapshot snapshot = codec.seal(new DraftQuoteSnapshot(
+                DraftQuoteSnapshot.CURRENT_SCHEMA_VERSION,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                List.of(), List.of()));
+        draft.setQuoteSnapshotJson(codec.encode(snapshot));
 
-        assertThrows(DataIntegrityViolationException.class, () -> emailDraftRepository.saveAndFlush(draft));
+        EmailDraft saved = emailDraftRepository.saveAndFlush(draft);
+        assertEquals(snapshot, codec.decode(saved.getQuoteSnapshotJson()));
     }
 
     private void persistDraftSnapshot(User owner, CatalogItemResponse originalCatalogItem) {

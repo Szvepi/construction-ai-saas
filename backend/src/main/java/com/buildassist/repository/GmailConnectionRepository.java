@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.util.List;
 
 public interface GmailConnectionRepository extends JpaRepository<GmailConnection, Long> {
 
@@ -19,4 +20,7 @@ public interface GmailConnectionRepository extends JpaRepository<GmailConnection
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT connection FROM GmailConnection connection WHERE connection.id = :connectionId")
     Optional<GmailConnection> findByIdForUpdate(@Param("connectionId") Long connectionId);
+
+    @Query("SELECT connection.user.id FROM GmailConnection connection ORDER BY connection.id")
+    List<Long> findAllUserIdsForGmailSync();
 }

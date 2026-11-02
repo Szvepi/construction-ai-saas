@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: ${TEST_DATABASE_URL}
+    url: ${TEST_DATABASE_URL:jdbc:postgresql://localhost:5432/mira_test}
     username: ${TEST_DATABASE_USERNAME}
     password: ${TEST_DATABASE_PASSWORD}
   jpa:

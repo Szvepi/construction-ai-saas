@@ -36,6 +36,21 @@ public class AppProperties {
         private String clientSecret;
         private String redirectUri;
         private int syncWindowMonths = 6;
+        private String quotaProjectKey = "default";
+        private long projectQuotaUnitsPerMinute = 1_200_000;
+        private long userQuotaUnitsPerMinute = 6_000;
+        private double quotaSafetyMargin = 0.2;
+        private int maxConcurrentRequestsPerAccount = 1;
+        private int syncPollIntervalMs = 30_000;
+        private int retryBaseDelaySeconds = 5;
+        private int retryMaxDelaySeconds = 900;
+        private int retryMaxAttempts = 8;
+        private int listQuotaUnits = 5;
+        private int getMetadataQuotaUnits = 20;
+        private int getFullQuotaUnits = 60;
+        private int historyQuotaUnits = 2;
+        private int profileQuotaUnits = 1;
+        private int draftCreateQuotaUnits = 10;
     }
 
     @Data

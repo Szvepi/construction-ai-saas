@@ -72,7 +72,7 @@ scope:
 
 Navigate to:
 ```
-http://localhost:8080/login/oauth2/authorization/google
+http://localhost:8080/oauth2/authorization/google
 ```
 
 This redirects to Google login, then back to `/login/oauth2/code/google` where Spring Security handles the OAuth2 callback.
@@ -185,7 +185,7 @@ if (token.isPresent()) {
 
 The frontend should navigate to:
 ```javascript
-window.location.href = 'http://localhost:8080/login/oauth2/authorization/google';
+window.location.href = 'http://localhost:8080/oauth2/authorization/google';
 ```
 
 Or use a custom Google Login button.
@@ -306,7 +306,7 @@ cd frontend && npm run dev
 curl http://localhost:8080/actuator/health
 
 # Check OAuth2 endpoints
-curl http://localhost:8080/login/oauth2/authorization/google
+curl http://localhost:8080/oauth2/authorization/google
 # Should redirect to Google login
 ```
 
@@ -323,4 +323,3 @@ curl http://localhost:8080/login/oauth2/authorization/google
 - [Google OAuth2 Scopes](https://developers.google.com/identity/protocols/oauth2/scopes)
 - [Gmail API Documentation](https://developers.google.com/gmail/api/guides)
 - [Spring Security OAuth2 in Spring Boot](https://spring.io/guides/tutorials/spring-boot-oauth2/)
-

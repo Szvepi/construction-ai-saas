@@ -28,6 +28,9 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [syncMessage, setSyncMessage] = useState<string | null>(null);
+    const [syncWaiting, setSyncWaiting] = useState(false);
+    const [syncReconnectRequired, setSyncReconnectRequired] = useState(false);
 
     const loadDashboard = useCallback(async () => {
         setError(null);
@@ -47,7 +50,16 @@ export default function DashboardPage() {
             if (status.connected) {
                 setRefreshing(true);
                 try {
-                    await apiFetch("/api/emails/refresh", {method: "POST"});
+                    const sync = await apiFetch<{
+                        fetchedCount: number;
+                        hasMore: boolean;
+                        waiting: boolean;
+                        reconnectRequired: boolean;
+                        message: string;
+                    }>("/api/emails/refresh", {method: "POST"});
+                    setSyncWaiting(sync.waiting);
+                    setSyncReconnectRequired(sync.reconnectRequired);
+                    setSyncMessage(`${sync.message} ${sync.fetchedCount} új levél importálva.`);
                 } catch (err) {
                     if (err instanceof ApiError && err.status === 401) {
                         router.push("/auth/login");
@@ -173,9 +185,16 @@ export default function DashboardPage() {
                         </div>
                     </div>
                     {gmailStatus?.connected ? (
-                        <p className="shrink-0 text-xs font-medium text-emerald-800" role="status">
-                            {refreshing ? "Levelek frissítése…" : "Kapcsolat aktív"}
-                        </p>
+                        <div className="flex items-center gap-3">
+                            <p className="shrink-0 text-xs font-medium text-emerald-800" role="status">
+                                {refreshing ? "Levelek frissítése…" : "Kapcsolat aktív"}
+                            </p>
+                            {syncReconnectRequired && (
+                                <Button onClick={handleConnect} variant="secondary" className="!px-3 !py-1.5 text-xs">
+                                    Gmail újracsatlakoztatása
+                                </Button>
+                            )}
+                        </div>
                     ) : (
                         <Button onClick={handleConnect} variant="secondary" className="self-start !px-3 !py-1.5 text-xs sm:self-auto">
                             Gmail csatlakoztatása
@@ -185,6 +204,11 @@ export default function DashboardPage() {
 
                 {refreshing && (
                     <p className="sr-only" role="status">Ajánlatkérések frissítése a Gmailből…</p>
+                )}
+                {syncMessage && (
+                    <p role={syncReconnectRequired ? "alert" : "status"} className={`rounded-xl border px-4 py-3 text-sm ${syncReconnectRequired ? "border-rose-200 bg-rose-50 text-rose-900" : syncWaiting ? "border-amber-200 bg-amber-50 text-amber-900" : "border-sky-200 bg-sky-50 text-sky-900"}`}>
+                        {syncMessage}
+                    </p>
                 )}
                 {error && (
                     <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between" role="alert">

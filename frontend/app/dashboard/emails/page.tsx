@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
@@ -10,6 +10,16 @@ import {EmailList} from "@/components/emails/EmailList";
 import {GmailConnectBanner} from "@/components/emails/GmailConnectBanner";
 import {Button} from "@/components/ui/Button";
 
+type RefreshStatus =
+    | "IN_PROGRESS"
+    | "WAITING"
+    | "RECONNECT_REQUIRED"
+    | "RESUMABLE_ERROR"
+    | "FAILED"
+    | "INITIAL_COMPLETE"
+    | "NO_NEW_EMAILS"
+    | "COMPLETE";
+
 export default function DashboardPage() {
     const router = useRouter();
     const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
@@ -18,13 +28,10 @@ export default function DashboardPage() {
     const [error, setError] = useState<string | null>(null);
     const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
     const [refreshError, setRefreshError] = useState<string | null>(null);
+    const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
     const [refreshNeedsReconnect, setRefreshNeedsReconnect] = useState(false);
     const [emailRefreshKey, setEmailRefreshKey] = useState(0);
-    const [backfilling, setBackfilling] = useState(false);
-    const [backfillComplete, setBackfillComplete] = useState(false);
-    const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
-    const [backfillError, setBackfillError] = useState<string | null>(null);
-    const [backfillNeedsReconnect, setBackfillNeedsReconnect] = useState(false);
+    const refreshInFlight = useRef(false);
 
     const loadData = useCallback(async () => {
         try {
@@ -42,27 +49,54 @@ export default function DashboardPage() {
     }, [router]);
 
     const handleRefresh = useCallback(async () => {
+        if (refreshInFlight.current) {
+            return;
+        }
+        refreshInFlight.current = true;
         setRefreshing(true);
         setRefreshError(null);
         setRefreshMessage(null);
         setRefreshNeedsReconnect(false);
-        let fetchedCount = 0;
+        setRefreshStatus("IN_PROGRESS");
         try {
-            while (true) {
-                const result = await apiFetch<{
-                    fetchedCount: number;
-                    processedCount: number;
-                    hasMore: boolean;
-                    complete: boolean;
-                    inProgress: boolean;
-                    phase: string;
-                    message: string;
-                }>("/api/emails/refresh", {method: "POST"});
-                fetchedCount += result.fetchedCount;
-                setRefreshMessage(`${result.message} ${fetchedCount} új levél importálva.`);
-                if (result.complete || result.inProgress || !result.hasMore) {
-                    break;
-                }
+            const result = await apiFetch<{
+                fetchedCount: number;
+                processedCount: number;
+                hasMore: boolean;
+                complete: boolean;
+                inProgress: boolean;
+                waiting: boolean;
+                retryAt: string | null;
+                reconnectRequired: boolean;
+                phase: string;
+                message: string;
+            }>("/api/emails/refresh", {method: "POST"});
+            if (result.reconnectRequired) {
+                setRefreshNeedsReconnect(true);
+                setRefreshStatus("RECONNECT_REQUIRED");
+                setRefreshError(result.message);
+                setRefreshMessage(null);
+            } else if (result.phase === "FAILED") {
+                setRefreshStatus("FAILED");
+                setRefreshError(result.message);
+                setRefreshMessage(null);
+            } else if (result.waiting) {
+                setRefreshStatus("WAITING");
+                setRefreshMessage(
+                    `${result.message}${result.retryAt ? ` Következő próbálkozás: ${new Date(result.retryAt).toLocaleTimeString("hu-HU")}.` : ""}`,
+                );
+            } else if (result.phase === "INITIAL_COMPLETE") {
+                setRefreshStatus("INITIAL_COMPLETE");
+                setRefreshMessage(`${result.message} ${result.fetchedCount} új levél importálva.`);
+            } else if (result.inProgress || result.hasMore) {
+                setRefreshStatus("IN_PROGRESS");
+                setRefreshMessage(`${result.message} ${result.fetchedCount} új levél importálva ebben a körben.`);
+            } else if (result.phase === "HISTORY" && result.fetchedCount === 0) {
+                setRefreshStatus("NO_NEW_EMAILS");
+                setRefreshMessage(result.message);
+            } else {
+                setRefreshStatus("COMPLETE");
+                setRefreshMessage(`${result.message} ${result.fetchedCount} új levél importálva.`);
             }
             await loadData();
             setEmailRefreshKey((current) => current + 1);
@@ -73,58 +107,49 @@ export default function DashboardPage() {
             }
             if (err instanceof ApiError && err.status === 424) {
                 setRefreshNeedsReconnect(true);
+                setRefreshStatus("RECONNECT_REQUIRED");
+            } else if (err instanceof ApiError && err.status >= 500) {
+                setRefreshStatus("RESUMABLE_ERROR");
+                setRefreshError(`${err.message} A szinkron állapota megőrződött; újrapróbálással folytatható.`);
+            } else {
+                setRefreshStatus("FAILED");
             }
-            setRefreshError(err instanceof ApiError ? err.message : "Frissítés sikertelen");
-            if (fetchedCount > 0) {
-                setEmailRefreshKey((current) => current + 1);
+            if (!(err instanceof ApiError && err.status >= 500)) {
+                setRefreshError(err instanceof ApiError ? err.message : "Frissítés sikertelen");
             }
         } finally {
             setRefreshing(false);
+            refreshInFlight.current = false;
         }
     }, [loadData, router]);
-
-    const handleBackfill = useCallback(async () => {
-        setBackfilling(true);
-        setBackfillError(null);
-        setBackfillNeedsReconnect(false);
-        setBackfillMessage(null);
-        try {
-            const result = await apiFetch<{
-                importedCount: number;
-                processedCount: number;
-                hasMore: boolean;
-                complete: boolean;
-                inProgress: boolean;
-                message: string;
-            }>("/api/emails/backfill", {method: "POST"});
-            setBackfillComplete(result.complete);
-            setBackfillMessage(result.inProgress
-                ? result.message
-                : `${result.message} ${result.importedCount} új levél importálva.`);
-            if (!result.inProgress) {
-                setEmailRefreshKey((current) => current + 1);
-            }
-        } catch (err) {
-            if (err instanceof ApiError && err.status === 401) {
-                router.push("/auth/login");
-                return;
-            }
-            if (err instanceof ApiError && err.status === 424) {
-                setBackfillNeedsReconnect(true);
-            }
-            setBackfillError(err instanceof ApiError ? err.message : "A régebbi levelek betöltése nem sikerült.");
-        } finally {
-            setBackfilling(false);
-        }
-    }, [router]);
 
     useEffect(() => {
         if (!isAuthenticated()) {
             router.push("/auth/login");
             return;
         }
-        loadData().finally(() => setLoading(false));
-    }, [router, loadData]);
+        let pollingTimer: number | undefined;
+        let cancelled = false;
+        void loadData().then((status) => {
+            if (cancelled) {
+                return;
+            }
+            setLoading(false);
+            if (!status?.connected) {
+                return;
+            }
+            void handleRefresh();
+            pollingTimer = window.setInterval(() => {
+                void handleRefresh();
+            }, 30_000);
+        });
+        return () => {
+            cancelled = true;
+            if (pollingTimer !== undefined) {
+                window.clearInterval(pollingTimer);
+            }
+        };
+    }, [router, loadData, handleRefresh]);
 
     async function handleConnect() {
         try {
@@ -158,19 +183,17 @@ export default function DashboardPage() {
                         >
                             {refreshing ? "Frissítés…" : "E-mailek frissítése"}
                         </Button>
-                        <Button
-                            variant="secondary"
-                            onClick={handleBackfill}
-                            disabled={backfilling || backfillComplete || !gmailStatus?.connected}
-                            className="w-full sm:w-auto"
-                        >
-                            {backfilling ? "Régebbi levelek betöltése…" : "Régebbi levelek betöltése"}
-                        </Button>
                     </div>
                 </div>
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 {refreshMessage && (
-                    <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    <p role="status" className={`rounded-xl border px-4 py-3 text-sm ${
+                        refreshStatus === "WAITING"
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : refreshStatus === "IN_PROGRESS"
+                                ? "border-sky-200 bg-sky-50 text-sky-900"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    }`}>
                         {refreshMessage}
                     </p>
                 )}
@@ -186,33 +209,6 @@ export default function DashboardPage() {
                             {refreshing ? "Újrapróbálás…" : "Újrapróbálás"}
                         </button>
                         {refreshNeedsReconnect && (
-                            <button
-                                type="button"
-                                onClick={handleConnect}
-                                className="font-semibold underline underline-offset-2"
-                            >
-                                Gmail újracsatlakoztatása
-                            </button>
-                        )}
-                    </div>
-                )}
-                {backfillMessage && (
-                    <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {backfillMessage}
-                    </p>
-                )}
-                {backfillError && (
-                    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        <span>{backfillError}</span>
-                        <button
-                            type="button"
-                            onClick={handleBackfill}
-                            disabled={backfilling}
-                            className="font-semibold underline underline-offset-2 disabled:opacity-50"
-                        >
-                            {backfilling ? "Újrapróbálás…" : "Újrapróbálás"}
-                        </button>
-                        {backfillNeedsReconnect && (
                             <button
                                 type="button"
                                 onClick={handleConnect}

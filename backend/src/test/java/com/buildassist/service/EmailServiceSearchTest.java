@@ -39,8 +39,6 @@ class EmailServiceSearchTest {
     @Mock
     private GmailConnectionRepository gmailConnectionRepository;
     @Mock
-    private GmailService gmailService;
-    @Mock
     private AiDraftService aiDraftService;
 
     private EmailService emailService;
@@ -51,7 +49,6 @@ class EmailServiceSearchTest {
                 emailRepository,
                 emailDraftRepository,
                 gmailConnectionRepository,
-                gmailService,
                 aiDraftService);
     }
 
@@ -174,5 +171,24 @@ class EmailServiceSearchTest {
         assertEquals("Legacy inbox item", response.getFirst().subject());
         assertEquals(EmailCategory.QUOTE_REQUEST, response.getFirst().category());
         assertEquals(EmailDraft.DraftStatus.PENDING_REVIEW, response.getFirst().draftStatus());
+    }
+
+    @Test
+    void fullGmailResponseKeepsAiBodyButDoesNotPersistSpamBody() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode fullMessage = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("""
+                        {"internalDate":"1792680000000","payload":{
+                          "headers":[{"name":"Subject","value":"Test"}],
+                          "body":{"data":"cXVvdGUtcmVxdWVzdC1ib2R5"}}}
+                        """);
+        com.fasterxml.jackson.databind.JsonNode headers = fullMessage.path("payload").path("headers");
+
+        Email spam = emailService.createEmailFromGmailResponse(
+                null, "spam-id", headers, fullMessage, EmailCategory.SPAM);
+        Email quoteRequest = emailService.createEmailFromGmailResponse(
+                null, "quote-id", headers, fullMessage, EmailCategory.QUOTE_REQUEST);
+
+        assertEquals("", spam.getBodyText());
+        assertEquals("quote-request-body", quoteRequest.getBodyText());
     }
 }

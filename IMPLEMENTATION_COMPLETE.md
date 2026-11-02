@@ -21,7 +21,7 @@ A complete Google OAuth2 login system with Spring Security OAuth2 Client integra
   - Returns JSON with token and user info
 
 #### **3. Authentication Endpoints** ✅
-- `GET /login/oauth2/authorization/google` - Initiates OAuth2 flow
+- `GET /oauth2/authorization/google` - Initiates OAuth2 flow
 - `GET /login/oauth2/code/google` - OAuth2 callback (auto-handled by Spring)
 - `GET /api/auth/user` - Returns authenticated user info
 
@@ -73,13 +73,13 @@ docker compose up -d postgres redis
 ./scripts/run-backend.ps1
 
 # 4. Test OAuth2 login
-# Navigate to: http://localhost:8080/login/oauth2/authorization/google
+# Navigate to: http://localhost:8080/oauth2/authorization/google
 ```
 
 ### Login Flow
 
 1. User clicks "Login with Google"
-2. Redirects to `GET /login/oauth2/authorization/google`
+2. Redirects to `GET /oauth2/authorization/google`
 3. Spring Security redirects to Google login
 4. User authenticates with Google
 5. Google redirects to `GET /login/oauth2/code/google`
@@ -95,7 +95,7 @@ docker compose up -d postgres redis
 
 ```bash
 # Login endpoint
-GET /login/oauth2/authorization/google
+GET /oauth2/authorization/google
 
 # Get user info (requires JWT)
 GET /api/auth/user
@@ -228,7 +228,7 @@ mvn clean compile -DskipTests
 curl http://localhost:8080/actuator/health
 
 # 3. Initiate OAuth2 login
-curl -L http://localhost:8080/login/oauth2/authorization/google
+curl -L http://localhost:8080/oauth2/authorization/google
 
 # 4. After Google login (manually), you'll get JWT in response
 # 5. Use JWT to call protected endpoints
@@ -293,7 +293,7 @@ curl -L http://localhost:8080/login/oauth2/authorization/google
 
 ### Expected Flow
 
-1. Navigate to: `http://localhost:8080/login/oauth2/authorization/google`
+1. Navigate to: `http://localhost:8080/oauth2/authorization/google`
 2. Redirects to Google login page
 3. Authenticate with Google account
 4. Redirects back to backend
@@ -399,4 +399,3 @@ For more details, see **OAUTH2_SETUP.md** troubleshooting section.
 - Next steps outlined
 
  **Ready for Frontend Integration & Email Features!**
-

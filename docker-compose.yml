@@ -4,13 +4,13 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-buildassist}
+      POSTGRES_DB: ${POSTGRES_DB:-mira_dev}
       POSTGRES_USER: ${POSTGRES_USER:-buildassist}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-buildassist}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-buildassist}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-buildassist} -d ${POSTGRES_DB:-mira_dev}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -34,7 +34,7 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-buildassist}
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mira_dev}
       DATABASE_USERNAME: ${POSTGRES_USER:-buildassist}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-buildassist}
       REDIS_HOST: redis

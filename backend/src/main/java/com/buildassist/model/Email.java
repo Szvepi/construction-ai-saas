@@ -21,6 +21,7 @@ public class Email {
     @Column(name = "gmail_message_id", nullable = false)
     private String gmailMessageId;
 
+    @Column(length = 500)
     private String subject;
 
     @Column(name = "from_address")
@@ -29,7 +30,7 @@ public class Email {
     @Column(name = "body_text", columnDefinition = "TEXT")
     private String bodyText;
 
-    @Column(name = "synced_at")
+    @Column(name = "synced_at", nullable = false)
     private OffsetDateTime syncedAt;
 
     @Column(name = "is_replied", nullable = false)
@@ -40,7 +41,7 @@ public class Email {
     private OffsetDateTime emailReceivedAt;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "category", nullable = false)
+    @Column(name = "category", nullable = false, length = 50)
     private EmailCategory category = EmailCategory.OTHER;
 
 }

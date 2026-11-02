@@ -54,7 +54,7 @@ This implementation adds **Spring Security OAuth2 Client** login flow to the Bui
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Frontend (Next.js)                        │
-│  - OAuth2 Login Button → /login/oauth2/authorization/google │
+│  - OAuth2 Login Button → /oauth2/authorization/google │
 └────────────────────────┬────────────────────────────────────┘
                          │
         ┌────────────────┴─────────────────┐
@@ -92,7 +92,7 @@ This implementation adds **Spring Security OAuth2 Client** login flow to the Bui
 
 1. **Initiate OAuth2 Login**
    ```
-   GET /login/oauth2/authorization/google
+   GET /oauth2/authorization/google
    ```
    → Redirects to Google login page
 
@@ -172,7 +172,7 @@ public class EmailService {
 ###  Frontend (Next Steps)
 
 - [ ] Add Google OAuth2 login button
-- [ ] Redirect to `/login/oauth2/authorization/google`
+- [ ] Redirect to `/oauth2/authorization/google`
 - [ ] Store JWT token from response
 - [ ] Use token in API calls
 - [ ] Display user info from `/api/auth/user`
@@ -217,7 +217,7 @@ cd backend && mvn spring-boot:run
 
 ```bash
 # Navigate to
-http://localhost:8080/login/oauth2/authorization/google
+http://localhost:8080/oauth2/authorization/google
 ```
 
 Should redirect to Google login, then back to backend with JWT token.
@@ -285,7 +285,7 @@ class OAuth2LoginTest {
 ./scripts/run-backend.ps1
 
 # 2. Navigate to login
-curl http://localhost:8080/login/oauth2/authorization/google
+curl http://localhost:8080/oauth2/authorization/google
 
 # 3. After Google login, you should receive JSON with token
 # 4. Use token to call /api/auth/user
@@ -343,4 +343,3 @@ curl -H "Authorization: Bearer <token>" http://localhost:8080/api/auth/user
 - Success Handler: `OAuth2AuthenticationSuccessHandler.java`
 - Auth Controller: `controller/AuthController.java`
 - Gmail Service: `service/GmailService.java`
-

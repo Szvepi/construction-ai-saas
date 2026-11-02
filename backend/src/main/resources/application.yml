@@ -10,7 +10,7 @@ spring:
           # Alacsony hőmérséklet (temperature), mert precíz adatkinyerést várunk, nem kreativitást!
           temperature: 0.2
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/buildassist}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/mira_dev}
     username: ${DATABASE_USERNAME:buildassist}
     password: ${DATABASE_PASSWORD:buildassist}
   jpa:
@@ -54,6 +54,12 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 
+logging:
+  level:
+    root: INFO
+    com.buildassist.service.GmailInboxSyncService: INFO
+    com.buildassist.service.GmailSyncScheduler: INFO
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -77,6 +83,21 @@ app:
     client-secret: ${GMAIL_CLIENT_SECRET:}
     redirect-uri: ${GMAIL_REDIRECT_URI:http://localhost:8080/api/gmail/callback}
     sync-window-months: ${GMAIL_SYNC_WINDOW_MONTHS:6}
+    quota-project-key: ${GMAIL_QUOTA_PROJECT_KEY:default}
+    project-quota-units-per-minute: ${GMAIL_PROJECT_QUOTA_UNITS_PER_MINUTE:1200000}
+    user-quota-units-per-minute: ${GMAIL_USER_QUOTA_UNITS_PER_MINUTE:6000}
+    quota-safety-margin: ${GMAIL_QUOTA_SAFETY_MARGIN:0.2}
+    max-concurrent-requests-per-account: ${GMAIL_MAX_CONCURRENT_REQUESTS_PER_ACCOUNT:1}
+    sync-poll-interval-ms: ${GMAIL_SYNC_POLL_INTERVAL_MS:30000}
+    retry-base-delay-seconds: ${GMAIL_RETRY_BASE_DELAY_SECONDS:5}
+    retry-max-delay-seconds: ${GMAIL_RETRY_MAX_DELAY_SECONDS:900}
+    retry-max-attempts: ${GMAIL_RETRY_MAX_ATTEMPTS:8}
+    list-quota-units: ${GMAIL_LIST_QUOTA_UNITS:5}
+    get-metadata-quota-units: ${GMAIL_GET_METADATA_QUOTA_UNITS:20}
+    get-full-quota-units: ${GMAIL_GET_FULL_QUOTA_UNITS:60}
+    history-quota-units: ${GMAIL_HISTORY_QUOTA_UNITS:2}
+    profile-quota-units: ${GMAIL_PROFILE_QUOTA_UNITS:1}
+    draft-create-quota-units: ${GMAIL_DRAFT_CREATE_QUOTA_UNITS:10}
   openai:
     api-key: ${OPENAI_API_KEY:}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
