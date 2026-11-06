@@ -68,7 +68,6 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
             @Param("category") String category,
             @Param("classificationMetadata") String classificationMetadata);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query(value = """
             SELECT * FROM emails
             WHERE classification_source <> 'MANUAL'

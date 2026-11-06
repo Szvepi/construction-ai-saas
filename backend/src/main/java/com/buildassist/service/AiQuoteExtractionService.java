@@ -11,7 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 
@@ -130,30 +132,24 @@ public class AiQuoteExtractionService {
                   basis is explicitly present in the contractor catalog configuration; otherwise flag review.
 
                 CATALOG REFERENCE (no prices or internal costs):
-                {catalogReference}
+                """ + catalogReference + "\n" + """
 
                 AVAILABLE OPERATIONS:
                 DIRECT, ADD, SUBTRACT, MULTIPLY, DIVIDE, AREA, PERIMETER, VOLUME, PERCENT_ADJUSTMENT,
                 COUNT, ROUND, ROUND_UP_TO_MULTIPLE.
 
-                {format}
+                """ + outputConverter.getFormat() + "\n" + """
 
                 EMAIL BODY:
-                {emailBody}
+                """ + emailBody + "\n" + """
 
                 CONTRACTOR'S SUPPLEMENTARY NOTES:
-                {additionalNotes}
-                """;
+                """ + (additionalNotes == null
+                        ? "Nincs kiegészítő információ." : additionalNotes);
 
         try {
             String response = ChatClient.create(chatModel)
-                    .prompt()
-                    .user(userSpec -> userSpec.text(prompt)
-                            .param("catalogReference", catalogReference)
-                            .param("format", outputConverter.getFormat())
-                            .param("emailBody", emailBody)
-                            .param("additionalNotes", additionalNotes == null
-                                    ? "Nincs kiegészítő információ." : additionalNotes))
+                    .prompt(new Prompt(new UserMessage(prompt)))
                     .call()
                     .content();
             AiQuoteDtos.StructuredExtraction result = outputConverter.convert(response);
