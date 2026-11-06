@@ -28,6 +28,7 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [connectResultMessage, setConnectResultMessage] = useState<string | null>(null);
     const [syncMessage, setSyncMessage] = useState<string | null>(null);
     const [syncWaiting, setSyncWaiting] = useState(false);
     const [syncReconnectRequired, setSyncReconnectRequired] = useState(false);
@@ -59,7 +60,9 @@ export default function DashboardPage() {
                     }>("/api/emails/refresh", {method: "POST"});
                     setSyncWaiting(sync.waiting);
                     setSyncReconnectRequired(sync.reconnectRequired);
-                    setSyncMessage(`${sync.message} ${sync.fetchedCount} új levél importálva.`);
+                    setSyncMessage(sync.reconnectRequired
+                        ? sync.message
+                        : `${sync.message} ${sync.fetchedCount} új levél importálva.`);
                 } catch (err) {
                     if (err instanceof ApiError && err.status === 401) {
                         router.push("/auth/login");
@@ -84,6 +87,18 @@ export default function DashboardPage() {
             setLoading(false);
         }
     }, [router]);
+
+    useEffect(() => {
+        const url = new URL(window.location.href);
+        const connectResult = url.searchParams.get("gmailConnect");
+        if (connectResult === "failed") {
+            setConnectResultMessage("A Gmail-kapcsolódás nem sikerült. Próbáld újra.");
+        }
+        if (connectResult) {
+            url.searchParams.delete("gmailConnect");
+            window.history.replaceState({}, document.title, url.toString());
+        }
+    }, []);
 
     useEffect(() => {
         if (!isAuthenticated()) {
@@ -173,14 +188,20 @@ export default function DashboardPage() {
                             <p className={`text-sm font-semibold ${
                                 gmailStatus?.connected ? "text-emerald-900" : "text-amber-900"
                             }`}>
-                                {gmailStatus?.connected ? "Gmail csatlakoztatva" : "A Gmail még nincs csatlakoztatva"}
+                                {gmailStatus?.connected
+                                    ? "Gmail csatlakoztatva"
+                                    : gmailStatus?.reconnectRequired
+                                        ? "A Gmail-kapcsolat újracsatlakoztatást igényel"
+                                        : "A Gmail még nincs csatlakoztatva"}
                             </p>
                             <p className={`truncate text-xs ${
                                 gmailStatus?.connected ? "text-emerald-800" : "text-amber-800"
                             }`}>
                                 {gmailStatus?.connected
                                     ? gmailStatus.gmailAddress
-                                    : "Csatlakoztasd a postafiókot az ajánlatkérések szinkronizálásához."}
+                                    : gmailStatus?.reconnectRequired
+                                        ? "A Gmail-kapcsolat lejárt vagy megszakadt. Csatlakoztasd újra a levelezést a szinkronizáció folytatásához."
+                                        : "Csatlakoztasd a postafiókot az ajánlatkérések szinkronizálásához."}
                             </p>
                         </div>
                     </div>
@@ -197,11 +218,16 @@ export default function DashboardPage() {
                         </div>
                     ) : (
                         <Button onClick={handleConnect} variant="secondary" className="self-start !px-3 !py-1.5 text-xs sm:self-auto">
-                            Gmail csatlakoztatása
+                            {gmailStatus?.reconnectRequired ? "Gmail újracsatlakoztatása" : "Gmail csatlakoztatása"}
                         </Button>
                     )}
                 </section>
 
+                {connectResultMessage && (
+                    <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        {connectResultMessage}
+                    </p>
+                )}
                 {refreshing && (
                     <p className="sr-only" role="status">Ajánlatkérések frissítése a Gmailből…</p>
                 )}

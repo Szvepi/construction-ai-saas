@@ -47,4 +47,15 @@ public class AppConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean("emailClassificationExecutor")
+    public TaskExecutor emailClassificationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("email-classification-");
+        executor.initialize();
+        return executor;
+    }
 }

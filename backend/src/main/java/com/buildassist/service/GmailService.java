@@ -9,201 +9,240 @@ import com.buildassist.repository.GmailConnectionRepository;
 import com.buildassist.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.core.OAuth2AccessToken;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
-/**
- * Gmail service using Spring Security OAuth2AuthorizedClient.
- *
- * For email fetching, use the OAuth2 access tokens managed by Spring Security.
- * This service leverages Spring's OAuth2 context to securely access Gmail APIs
- * without handling raw tokens directly.
- */
 @Service
 public class GmailService {
+
+    private static final String GOOGLE_AUTHORIZATION_ENDPOINT =
+            "https://accounts.google.com/o/oauth2/v2/auth";
+    private static final String GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+    private static final String GOOGLE_USERINFO_ENDPOINT =
+            "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
+    private static final String GMAIL_CALLBACK_PATH = "/api/gmail/callback";
+    private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+    private static final String GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+    private static final Set<String> REQUIRED_SCOPES =
+            Set.of("openid", "email", "profile", GMAIL_READ_SCOPE, GMAIL_COMPOSE_SCOPE);
 
     private final AppProperties appProperties;
     private final GmailConnectionRepository gmailConnectionRepository;
     private final UserRepository userRepository;
     private final TokenEncryptionService tokenEncryptionService;
-    private final OAuth2AuthorizedClientService oauth2ClientService;
+    private final GmailOAuthStateService oauthStateService;
     private final RestTemplate restTemplate;
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     public GmailService(
             AppProperties appProperties,
             GmailConnectionRepository gmailConnectionRepository,
             UserRepository userRepository,
             TokenEncryptionService tokenEncryptionService,
-            OAuth2AuthorizedClientService oauth2ClientService,
-            RestTemplate restTemplate) {
+            GmailOAuthStateService oauthStateService,
+            @Qualifier("gmailRestTemplate") RestTemplate restTemplate,
+            ObjectMapper objectMapper,
+            Clock clock) {
         this.appProperties = appProperties;
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.userRepository = userRepository;
         this.tokenEncryptionService = tokenEncryptionService;
-        this.oauth2ClientService = oauth2ClientService;
+        this.oauthStateService = oauthStateService;
         this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
-    /**
-     * Get the authorization URL for OAuth2 login flow.
-     * Modern approach: use Spring Security's oauth2Login() configuration.
-     * This method is for reference/legacy support.
-     */
     public GmailConnectResponse getAuthorizationUrl(Long userId) {
+        User user = userRepository.findById(userId)
+                .filter(User::isActive)
+                .orElseThrow(() -> new GmailOAuthException("user_unavailable"));
         String clientId = appProperties.getGmail().getClientId();
-        String redirectUri = appProperties.getGmail().getRedirectUri();
-        String scope = String.join(" ",
-                "openid",
-                "email",
-                "profile",
-                "https://www.googleapis.com/auth/gmail.send",
-                "https://www.googleapis.com/auth/gmail.readonly"
-        );
+        String redirectUri = gmailCallbackUri();
+        if (clientId == null || clientId.isBlank()) {
+            throw new GmailOAuthException("oauth_configuration_missing_client_id");
+        }
 
-        String url = "https://accounts.google.com/o/oauth2/v2/auth"
-                + "?client_id=" + urlEncode(clientId)
-                + "&redirect_uri=" + urlEncode(redirectUri)
-                + "&response_type=code"
-                + "&scope=" + urlEncode(scope)
-                + "&access_type=offline"
-                + "&prompt=consent"
-                + "&state=" + urlEncode(String.valueOf(userId));
-
+        String url = UriComponentsBuilder.fromUriString(GOOGLE_AUTHORIZATION_ENDPOINT)
+                .queryParam("client_id", clientId)
+                .queryParam("redirect_uri", redirectUri)
+                .queryParam("response_type", "code")
+                .queryParam("scope", String.join(" ", REQUIRED_SCOPES))
+                .queryParam("access_type", "offline")
+                .queryParam("prompt", "consent")
+                .queryParam("state", oauthStateService.issue(user.getId()))
+                .build()
+                .encode()
+                .toUriString();
         return new GmailConnectResponse(url);
     }
 
-    /**
-     * Store OAuth2 tokens from callback (legacy manual OAuth flow).
-     * In modern setup, Spring Security OAuth2 handles this transparently.
-     */
-    public void handleOAuthCallback(String code, String state) {
+    public Long validateOAuthState(String state) {
         try {
-            Long userId = Long.parseLong(state);
+            return oauthStateService.verify(state);
+        } catch (IllegalArgumentException ex) {
+            throw new GmailOAuthException("invalid_state", ex);
+        }
+    }
 
-            String tokenEndpoint = "https://oauth2.googleapis.com/token";
-            String clientId = appProperties.getGmail().getClientId();
-            String clientSecret = appProperties.getGmail().getClientSecret();
-            String redirectUri = appProperties.getGmail().getRedirectUri();
+    @Transactional
+    public void handleOAuthCallback(String code, String state) {
+        if (code == null || code.isBlank()) {
+            throw new GmailOAuthException("authorization_code_missing");
+        }
+        Long userId = validateOAuthState(state);
+        User user = userRepository.findById(userId)
+                .filter(User::isActive)
+                .orElseThrow(() -> new GmailOAuthException("user_unavailable"));
 
-            String form = "code=" + urlEncode(code)
-                    + "&client_id=" + urlEncode(clientId)
-                    + "&client_secret=" + urlEncode(clientSecret)
-                    + "&redirect_uri=" + urlEncode(redirectUri)
-                    + "&grant_type=authorization_code";
+        JsonNode tokenJson = exchangeAuthorizationCode(code);
+        String accessToken = tokenJson.path("access_token").asText("");
+        String refreshToken = tokenJson.path("refresh_token").asText("");
+        if (accessToken.isBlank()) {
+            throw new GmailOAuthException("access_token_missing");
+        }
+        verifyGrantedScopes(tokenJson.path("scope").asText(""));
 
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(tokenEndpoint))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(form))
-                    .build();
+        JsonNode userInfo = fetchUserInfo(accessToken);
+        String gmailAddress = userInfo.path("email").asText("");
+        if (gmailAddress.isBlank()) {
+            throw new GmailOAuthException("gmail_address_missing");
+        }
 
-            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() >= 400) {
-                throw new RuntimeException("Token endpoint returned " + resp.statusCode() + ": " + resp.body());
+        GmailConnection connection = gmailConnectionRepository.findByUserIdForUpdate(userId)
+                .orElseGet(GmailConnection::new);
+        boolean reconnectWasRequired = connection.isGmailSyncAuthRequired();
+        String storedRefreshToken = connection.getRefreshTokenEncrypted();
+        if (refreshToken.isBlank()) {
+            boolean sameGmailAccount = connection.getGmailAddress() != null
+                    && connection.getGmailAddress().equalsIgnoreCase(gmailAddress);
+            if (reconnectWasRequired || !sameGmailAccount
+                    || storedRefreshToken == null || storedRefreshToken.isBlank()) {
+                throw new GmailOAuthException("refresh_token_missing");
             }
+        } else {
+            connection.setRefreshTokenEncrypted(tokenEncryptionService.encrypt(refreshToken));
+        }
 
-            JsonNode tokenJson = objectMapper.readTree(resp.body());
-            String accessToken = tokenJson.path("access_token").asText(null);
-            String refreshToken = tokenJson.path("refresh_token").asText(null);
-            long expiresIn = tokenJson.path("expires_in").asLong(0L);
+        connection.setUser(user);
+        connection.setGmailAddress(gmailAddress);
+        connection.setAccessTokenEncrypted(tokenEncryptionService.encrypt(accessToken));
+        long expiresIn = tokenJson.path("expires_in").asLong(3600);
+        connection.setTokenExpiresAt(clock.instant().plusSeconds(Math.max(1, expiresIn)));
+        connection.setGmailSyncAuthRequired(false);
+        connection.setGmailSyncAuthErrorCategory(null);
+        connection.setGmailSyncAuthRequiredAt(null);
+        connection.setGmailSyncRetryAttempts(0);
+        connection.setGmailSyncRetryAt(null);
+        connection.setGmailSyncRetryExhausted(false);
+        gmailConnectionRepository.save(connection);
+    }
 
-            if (accessToken == null) {
-                throw new RuntimeException("No access_token in token response");
+    public GmailStatusResponse getConnectionStatus(Long userId) {
+        Optional<GmailConnection> optional = gmailConnectionRepository.findByUserId(userId);
+        if (optional.isEmpty()) {
+            return new GmailStatusResponse(false, null, false);
+        }
+        GmailConnection connection = optional.get();
+        boolean reconnectRequired = connection.isGmailSyncAuthRequired();
+        boolean connected = !reconnectRequired
+                && connection.getRefreshTokenEncrypted() != null
+                && !connection.getRefreshTokenEncrypted().isBlank();
+        return new GmailStatusResponse(connected, connection.getGmailAddress(), reconnectRequired);
+    }
+
+    private JsonNode exchangeAuthorizationCode(String code) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("code", code);
+        form.add("client_id", appProperties.getGmail().getClientId());
+        form.add("client_secret", appProperties.getGmail().getClientSecret());
+        form.add("redirect_uri", gmailCallbackUri());
+        form.add("grant_type", "authorization_code");
+        try {
+            String body = restTemplate.postForObject(
+                    GOOGLE_TOKEN_ENDPOINT, new HttpEntity<>(form, headers), String.class);
+            return objectMapper.readTree(body == null ? "{}" : body);
+        } catch (HttpStatusCodeException ex) {
+            String error = parseGoogleError(ex.getResponseBodyAsString());
+            if ("invalid_client".equals(error) || "unauthorized_client".equals(error)) {
+                throw new GmailOAuthException("oauth_configuration_" + error);
             }
+            throw new GmailOAuthException("token_exchange_" + (error.isBlank() ? ex.getStatusCode().value() : error));
+        } catch (RestClientException | java.io.IOException ex) {
+            throw new GmailOAuthException("token_exchange_unavailable", ex);
+        }
+    }
 
-            // fetch user info (email)
-            HttpRequest userReq = HttpRequest.newBuilder()
-                    .uri(URI.create("https://www.googleapis.com/oauth2/v1/userinfo?alt=json"))
-                    .header("Authorization", "Bearer " + accessToken)
-                    .GET()
-                    .build();
+    private JsonNode fetchUserInfo(String accessToken) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        try {
+            String body = restTemplate.exchange(
+                    GOOGLE_USERINFO_ENDPOINT, HttpMethod.GET, new HttpEntity<>(headers), String.class).getBody();
+            return objectMapper.readTree(body == null ? "{}" : body);
+        } catch (HttpStatusCodeException ex) {
+            throw new GmailOAuthException("userinfo_" + ex.getStatusCode().value());
+        } catch (RestClientException | java.io.IOException ex) {
+            throw new GmailOAuthException("userinfo_unavailable", ex);
+        }
+    }
 
-            HttpResponse<String> userResp = httpClient.send(userReq, HttpResponse.BodyHandlers.ofString());
-            if (userResp.statusCode() >= 400) {
-                throw new RuntimeException("Userinfo endpoint returned " + userResp.statusCode() + ": " + userResp.body());
+    private void verifyGrantedScopes(String scopeValue) {
+        if (scopeValue == null || scopeValue.isBlank()) {
+            throw new GmailOAuthException("gmail_scope_unverified");
+        }
+        Set<String> granted = new HashSet<>(Arrays.asList(scopeValue.trim().split("\\s+")));
+        if (!granted.contains(GMAIL_READ_SCOPE) || !granted.contains(GMAIL_COMPOSE_SCOPE)) {
+            throw new GmailOAuthException("gmail_scope_missing");
+        }
+    }
+
+    private String parseGoogleError(String responseBody) {
+        try {
+            return objectMapper.readTree(responseBody).path("error").asText("");
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    private String gmailCallbackUri() {
+        try {
+            String configuredUri = appProperties.getGmail().getRedirectUri();
+            if (configuredUri == null || configuredUri.isBlank()) {
+                throw new GmailOAuthException("oauth_configuration_missing_gmail_callback_origin");
             }
-
-            JsonNode userJson = objectMapper.readTree(userResp.body());
-            String email = userJson.path("email").asText(null);
-            if (email == null) {
-                throw new RuntimeException("Failed to obtain gmail address from userinfo");
+            java.net.URI uri = java.net.URI.create(configuredUri);
+            if (uri.getHost() == null || uri.getRawUserInfo() != null
+                    || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                throw new GmailOAuthException("oauth_configuration_invalid_gmail_callback_origin");
             }
-
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                throw new IllegalStateException("User not found: " + userId);
-            }
-            User user = userOpt.get();
-
-            Optional<GmailConnection> existing = gmailConnectionRepository.findByUserId(userId);
-            GmailConnection conn = existing.orElseGet(GmailConnection::new);
-            conn.setUser(user);
-            conn.setGmailAddress(email);
-            conn.setAccessTokenEncrypted(tokenEncryptionService.encrypt(accessToken));
-            if (refreshToken != null && !refreshToken.isBlank()) {
-                conn.setRefreshTokenEncrypted(tokenEncryptionService.encrypt(refreshToken));
-            }
-            if (expiresIn > 0) {
-                conn.setTokenExpiresAt(Instant.now().plusSeconds(expiresIn));
-            } else {
-                conn.setTokenExpiresAt(Instant.now().plusSeconds(3600));
-            }
-
-            gmailConnectionRepository.save(conn);
-        } catch (RuntimeException ex) {
+            return new java.net.URI(uri.getScheme(), null, uri.getHost(), uri.getPort(),
+                    GMAIL_CALLBACK_PATH, null, null).toASCIIString();
+        } catch (GmailOAuthException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new RuntimeException("Failed to handle OAuth callback", ex);
+            throw new GmailOAuthException("oauth_configuration_invalid_gmail_callback_origin", ex);
         }
-    }
-
-    /**
-     * Check if user has Gmail connection.
-     * With Spring Security OAuth2, this indicates automatic connection via login.
-     */
-    public GmailStatusResponse getConnectionStatus(Long userId) {
-        Optional<GmailConnection> optionalGmailConnection = gmailConnectionRepository.findByUserId(userId);
-        if (optionalGmailConnection.isEmpty()) {
-            return new GmailStatusResponse(false, null);
-        }
-        GmailConnection gmailConnection = optionalGmailConnection.get();
-        return new GmailStatusResponse(true, gmailConnection.getGmailAddress());
-    }
-
-    /**
-     * Get access token from Spring Security's OAuth2 context.
-     * This is used internally for Gmail API calls.
-     *
-     * @param principalName the principal name (email or user ID) from OAuth2
-     * @return access token if available
-     */
-    public Optional<String> getOAuth2AccessToken(String principalName) {
-        try {
-            OAuth2AuthorizedClient client = oauth2ClientService.loadAuthorizedClient("google", principalName);
-            if (client != null && client.getAccessToken() != null) {
-                return Optional.of(client.getAccessToken().getTokenValue());
-            }
-        } catch (Exception e) {
-            // Client not found or not authorized
-        }
-        return Optional.empty();
-    }
-
-    private static String urlEncode(String url) {
-        return URLEncoder.encode(url == null ? "" : url, StandardCharsets.UTF_8);
     }
 }

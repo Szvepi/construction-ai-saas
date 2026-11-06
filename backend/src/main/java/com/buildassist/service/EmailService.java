@@ -72,7 +72,10 @@ public class EmailService {
                         email.getCategory(),
                         emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(email.getId())
                                 .map(com.buildassist.model.EmailDraft::getStatus)
-                                .orElse(null)))
+                                .orElse(null),
+                        email.getClassificationStatus(),
+                        email.getClassificationReason(),
+                        email.getClassificationEvidence()))
                 .toList();
     }
 
@@ -153,7 +156,10 @@ public class EmailService {
                 row.getReceivedAt().atOffset(ZoneOffset.UTC),
                 Boolean.TRUE.equals(row.getReplied()),
                 EmailCategory.valueOf(row.getCategory()),
-                row.getDraftStatus() == null ? null : EmailDraft.DraftStatus.valueOf(row.getDraftStatus()));
+                row.getDraftStatus() == null ? null : EmailDraft.DraftStatus.valueOf(row.getDraftStatus()),
+                row.getClassificationStatus(),
+                row.getClassificationReason(),
+                row.getClassificationEvidence());
     }
 
     private String toSearchPattern(String query) {
@@ -212,6 +218,9 @@ public class EmailService {
                 email.getEmailReceivedAt(),
                 email.isReplied(),
                 email.getCategory(),
+                email.getClassificationStatus(),
+                email.getClassificationReason(),
+                email.getClassificationEvidence(),
                 draftEmail);
     }
 
@@ -232,12 +241,17 @@ public class EmailService {
             throw new IllegalStateException("Email does not belong to user's Gmail connection");
         }
 
-        // OTHER kategóriába nem lehet áthelyezni
-        if (newCategory == EmailCategory.OTHER) {
-            throw new IllegalArgumentException("Cannot move email to OTHER category");
+        if (newCategory == null || newCategory == EmailCategory.CLASSIFICATION_REVIEW) {
+            throw new IllegalArgumentException("Choose a final email category");
         }
 
         email.setCategory(newCategory);
+        email.setClassificationSource("MANUAL");
+        email.setClassificationStatus("CLASSIFIED");
+        email.setClassificationVersion(null);
+        email.setClassificationReason("Kézi besorolás");
+        email.setClassificationEvidence(null);
+        email.setClassificationRetryAt(null);
         emailRepository.save(email);
 
         return new EmailDtos.UpdateCategoryResponse(email.getId(), email.getCategory());
@@ -263,68 +277,28 @@ public class EmailService {
         email.setEmailReceivedAt(extractEmailReceivedDate(fullJson));
         email.setReplied(false);
         email.setCategory(category);
+        email.setClassificationMetadata(extractClassificationMetadata(fullHeaders));
         return email;
     }
 
-    /**
-     * Zéró költségű kategorizálás a Gmail fejlécek ellenőrzésére.
-     * SPAM: Automata üzenetek, tömeges emailek
-     * QUOTE_REQUEST: Árajánlat kérés
-     * OTHER: Egyéb
-     */
-    EmailCategory categorizeMessage(JsonNode headers, String messageId) {
+    private String extractClassificationMetadata(JsonNode headers) {
         if (headers == null || !headers.isArray()) {
-            return EmailCategory.OTHER;
+            return "{}";
         }
-
-        String from = extractHeader(headers, "From");
-        String subject = extractHeader(headers, "Subject");
-
-        // A) Hírlevél és tömeges üzenet fejlécek ellenőrzése
+        Map<String, String> relevantHeaders = new java.util.LinkedHashMap<>();
         for (JsonNode header : headers) {
             String name = header.path("name").asText("");
-            String value = header.path("value").asText("");
-
-            if ("List-Unsubscribe".equalsIgnoreCase(name) || "List-ID".equalsIgnoreCase(name)) {
-                return EmailCategory.SPAM;
-            }
-            if ("Precedence".equalsIgnoreCase(name) && value.toLowerCase().contains("bulk")) {
-                return EmailCategory.SPAM;
+            if (List.of("Reply-To", "Auto-Submitted", "Precedence", "List-Id", "List-Unsubscribe",
+                    "In-Reply-To", "References", "Content-Type").stream()
+                    .anyMatch(allowed -> allowed.equalsIgnoreCase(name))) {
+                relevantHeaders.put(name, header.path("value").asText(""));
             }
         }
-
-        // B) Automata / Rendszer feladók kiszűrése (no-reply, newsletter stb.)
-        if (from != null) {
-            String lowerFrom = from.toLowerCase();
-            if (lowerFrom.contains("no-reply@") || lowerFrom.contains("noreply@") ||
-                    lowerFrom.contains("newsletter@") || lowerFrom.contains("support@") ||
-                    lowerFrom.contains("mailer-daemon@") || lowerFrom.contains("donotreply@")) {
-                return EmailCategory.SPAM;
-            }
+        try {
+            return objectMapper.writeValueAsString(relevantHeaders);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to serialize email classification metadata", ex);
         }
-
-        // C) Tárgy alapú feketelista (rendszerértesítők, jelszóemlékeztetők, számlák)
-        if (subject != null) {
-            String lowerSubject = subject.toLowerCase();
-            if (lowerSubject.contains("biztonsági értesítés") || lowerSubject.contains("jelszó") ||
-                    lowerSubject.contains("password reset") || lowerSubject.contains("sikeres fizetés") ||
-                    lowerSubject.contains("bejelentkezés") || lowerSubject.contains("login alert")) {
-                return EmailCategory.SPAM;
-            }
-        }
-
-        // TODO ezt a részt még át kell gondolni
-        // D) Árajánlat kérés detektálása
-        if (subject != null) {
-            String lowerSubject = subject.toLowerCase();
-            if (lowerSubject.contains("árajánlat") || lowerSubject.contains("ajánaltkérés") ||
-                    lowerSubject.contains("offer") || lowerSubject.contains("ár") ||
-                    lowerSubject.contains("price") || lowerSubject.contains("költség")) {
-                return EmailCategory.QUOTE_REQUEST;
-            }
-        }
-
-        return EmailCategory.OTHER;
     }
 
     private OffsetDateTime extractEmailReceivedDate(JsonNode fullJson) {

@@ -35,6 +35,7 @@ const CATEGORY_MAP: Record<EmailSummary["category"], {label: string; className: 
     QUOTE_REQUEST: {label: "Ajánlatkérés", className: "border-blue-100 bg-blue-50 text-blue-700"},
     OTHER: {label: "Egyéb", className: "border-slate-200 bg-slate-100 text-slate-700"},
     SPAM: {label: "Spam", className: "border-rose-100 bg-rose-50 text-rose-700"},
+    CLASSIFICATION_REVIEW: {label: "Besorolás ellenőrzése", className: "border-violet-100 bg-violet-50 text-violet-700"},
 };
 const DRAFT_STATUS_MAP = {
     NONE: {label: "Nincs ajánlat", className: "border-slate-200 bg-slate-50 text-slate-600"},
@@ -52,7 +53,8 @@ function readSearchState(): SearchState {
     const direction = params.get("direction");
     return {
         q: params.get("q") ?? "",
-        category: category === "QUOTE_REQUEST" || category === "OTHER" || category === "SPAM" ? category : "",
+        category: category === "QUOTE_REQUEST" || category === "OTHER" || category === "SPAM"
+            || category === "CLASSIFICATION_REVIEW" ? category : "",
         draftStatus: params.get("draftStatus") === "REVIEW" ? "REVIEW" : "",
         page: Number.isInteger(rawPage) && rawPage >= 0 ? rawPage : 0,
         size: Number.isInteger(rawSize) && rawSize >= 1 && rawSize <= 100 ? rawSize : PAGE_SIZE,
@@ -98,6 +100,8 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
     const [error, setError] = useState<string | null>(null);
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [updatingCategoryId, setUpdatingCategoryId] = useState<number | null>(null);
+    const [reclassifying, setReclassifying] = useState(false);
+    const [classificationMessage, setClassificationMessage] = useState<string | null>(null);
     const requestId = useRef(0);
 
     useEffect(() => {
@@ -163,6 +167,7 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
         {id: "all", label: "Összes", count: totalCategoryCount, category: "", draftStatus: ""},
         {id: "quotes", label: "Ajánlatkérések", count: (data) => data.categoryCounts.QUOTE_REQUEST ?? 0, category: "QUOTE_REQUEST", draftStatus: ""},
         {id: "review", label: "Ellenőrzésre vár", count: (data) => data.reviewCount ?? 0, category: "", draftStatus: "REVIEW"},
+        {id: "classification-review", label: "Besorolás ellenőrzése", count: (data) => data.categoryCounts.CLASSIFICATION_REVIEW ?? 0, category: "CLASSIFICATION_REVIEW", draftStatus: ""},
         {id: "other", label: "Egyéb", count: (data) => data.categoryCounts.OTHER ?? 0, category: "OTHER", draftStatus: ""},
         {id: "spam", label: "Spam", count: (data) => data.categoryCounts.SPAM ?? 0, category: "SPAM", draftStatus: ""},
     ], []);
@@ -170,6 +175,8 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
         ? "review"
         : searchState.category === "QUOTE_REQUEST"
             ? "quotes"
+            : searchState.category === "CLASSIFICATION_REVIEW"
+                ? "classification-review"
             : searchState.category === "OTHER"
                 ? "other"
                 : searchState.category === "SPAM"
@@ -204,9 +211,29 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
     }
 
     function getAvailableCategories(category: EmailSummary["category"]): EmailSummary["category"][] {
-        if (category === "OTHER") return ["QUOTE_REQUEST", "SPAM"];
-        if (category === "QUOTE_REQUEST") return ["SPAM"];
-        return ["QUOTE_REQUEST"];
+        return (["QUOTE_REQUEST", "OTHER", "SPAM"] as const)
+            .filter((candidate) => candidate !== category);
+    }
+
+    async function handleReclassify() {
+        setReclassifying(true);
+        setClassificationMessage(null);
+        setError(null);
+        try {
+            const response = await apiFetch<{queued: number}>("/api/emails/reclassify?limit=100", {
+                method: "POST",
+            });
+            setClassificationMessage(
+                response.queued > 0
+                    ? `${response.queued} automatikusan besorolt levél újraosztályozása sorba került.`
+                    : "Nincs újraosztályozásra váró automatikus besorolású levél.",
+            );
+            onEmailUpdated?.(0);
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Az újraosztályozás indítása nem sikerült.");
+        } finally {
+            setReclassifying(false);
+        }
     }
 
     const currentPage = result?.page ?? searchState.page;
@@ -268,8 +295,21 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                         </svg>
                         {searchState.direction === "desc" ? "Legújabb elöl" : "Legrégebbi elöl"}
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => void handleReclassify()}
+                        disabled={reclassifying || !gmailConnected}
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-brand-200 bg-brand-50 px-3 text-sm font-medium text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
+                    >
+                        {reclassifying ? "Sorba állítás…" : "Régi levelek újraosztályozása"}
+                    </button>
                 </div>
 
+                {classificationMessage && (
+                    <p role="status" className="mx-4 mb-4 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900 sm:mx-6">
+                        {classificationMessage}
+                    </p>
+                )}
                 {!gmailConnected && (
                     <div className="mx-4 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:mx-6">
                         Kapcsold össze a Gmail-fiókodat a levelek megjelenítéséhez.
@@ -338,6 +378,17 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                                                     {email.category === "QUOTE_REQUEST" && (
                                                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusBadge.className}`}>
                                                             {statusBadge.label}
+                                                        </span>
+                                                    )}
+                                                    {["PENDING", "RETRY", "PROCESSING"].includes(email.classificationStatus) && (
+                                                        <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                                                            Besorolás folyamatban
+                                                        </span>
+                                                    )}
+                                                    {email.category === "CLASSIFICATION_REVIEW" && email.classificationReason && (
+                                                        <span className="basis-full text-xs text-violet-800">
+                                                            {email.classificationReason}
+                                                            {email.classificationEvidence ? ` „${email.classificationEvidence}”` : ""}
                                                         </span>
                                                     )}
                                                     {email.replied && (

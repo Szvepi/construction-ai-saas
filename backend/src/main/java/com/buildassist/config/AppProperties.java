@@ -11,6 +11,7 @@ public class AppProperties {
     private final Cors cors = new Cors();
     private final Encryption encryption = new Encryption();
     private final Gmail gmail = new Gmail();
+    private final EmailClassification emailClassification = new EmailClassification();
     private final OpenAi openAi = new OpenAi();
     private String frontendUrl;
 
@@ -56,5 +57,19 @@ public class AppProperties {
     @Data
     public static class OpenAi {
         private String apiKey;
+    }
+
+    @Data
+    public static class EmailClassification {
+        private boolean enabled = true;
+        private String version = "v1";
+        private int maxPerRun = 5;
+        private int maxPerDay = 100;
+        private int maxReclassificationBatch = 100;
+        private int maxAttempts = 3;
+        private int retryBaseSeconds = 300;
+        private int staleProcessingMinutes = 10;
+        private int pollIntervalMs = 30_000;
+        private int maxBodyCharacters = 12_000;
     }
 }

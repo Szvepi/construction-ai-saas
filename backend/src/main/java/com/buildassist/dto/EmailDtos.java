@@ -19,7 +19,10 @@ public final class EmailDtos {
             OffsetDateTime receivedAt,
             boolean replied,
             EmailCategory category,
-            EmailDraft.DraftStatus draftStatus) {
+            EmailDraft.DraftStatus draftStatus,
+            String classificationStatus,
+            String classificationReason,
+            String classificationEvidence) {
     }
 
     public record EmailSearchResponse(
@@ -40,6 +43,9 @@ public final class EmailDtos {
             OffsetDateTime receivedAt,
             boolean replied,
             EmailCategory category,
+            String classificationStatus,
+            String classificationReason,
+            String classificationEvidence,
             DraftDtos.GenerateDraftResponse draftEmail) {
     }
 
@@ -83,5 +89,8 @@ public final class EmailDtos {
     }
 
     public record UpdateCategoryResponse(Long id, EmailCategory category) {
+    }
+
+    public record ReclassificationResponse(int queued) {
     }
 }

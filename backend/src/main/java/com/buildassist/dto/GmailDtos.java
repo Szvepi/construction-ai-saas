@@ -8,6 +8,6 @@ public final class GmailDtos {
     public record GmailConnectResponse(String authorizationUrl) {
     }
 
-    public record GmailStatusResponse(boolean connected, String gmailAddress) {
+    public record GmailStatusResponse(boolean connected, String gmailAddress, boolean reconnectRequired) {
     }
 }

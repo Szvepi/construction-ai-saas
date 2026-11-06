@@ -1,10 +1,21 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useState } from "react";
 import { API_BASE_URL } from "@/lib/config";
 import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
+  const [oauthError, setOauthError] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("oauthError") === "google") {
+      setOauthError(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-4">
       <Image
@@ -21,8 +32,13 @@ export default function LoginPage() {
       </p>
       <h2 className="mt-8 text-2xl font-bold">Bejelentkezés</h2>
       <p className="mt-4 text-sm text-slate-600">
-        Jelentkezz be Gmail fiókoddal
+        Jelentkezz be Google-fiókoddal
       </p>
+      {oauthError && (
+        <p className="mt-4 max-w-sm rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          A Google-bejelentkezés nem sikerült. Próbáld újra.
+        </p>
+      )}
       <div className="mt-6 w-full max-w-sm">
         <Button
           className="mt-2 w-full"

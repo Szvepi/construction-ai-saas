@@ -6,6 +6,7 @@ type Props = {
 
 const CATEGORY_LABELS: Record<EmailDetail["category"], string> = {
     QUOTE_REQUEST: "Ajánlatkérés",
+    CLASSIFICATION_REVIEW: "Besorolás ellenőrzése",
     OTHER: "Egyéb",
     SPAM: "Spam",
 };

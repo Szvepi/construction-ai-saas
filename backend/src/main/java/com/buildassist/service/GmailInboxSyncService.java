@@ -35,7 +35,7 @@ public class GmailInboxSyncService {
     private static final String GMAIL_MESSAGES_URL = GMAIL_BASE_URL + "/messages";
 
     private final GmailHistoryStateStore historyStateStore;
-    private final GmailService gmailService;
+    private final GmailTokenProvider tokenProvider;
     private final EmailService emailService;
     private final EmailRepository emailRepository;
     private final GmailSyncWindow syncWindow;
@@ -46,7 +46,7 @@ public class GmailInboxSyncService {
 
     public GmailInboxSyncService(
             GmailHistoryStateStore historyStateStore,
-            GmailService gmailService,
+            GmailTokenProvider tokenProvider,
             EmailService emailService,
             EmailRepository emailRepository,
             GmailSyncWindow syncWindow,
@@ -55,7 +55,7 @@ public class GmailInboxSyncService {
             GmailRetryPolicy retryPolicy,
             Clock clock) {
         this.historyStateStore = historyStateStore;
-        this.gmailService = gmailService;
+        this.tokenProvider = tokenProvider;
         this.emailService = emailService;
         this.emailRepository = emailRepository;
         this.syncWindow = syncWindow;
@@ -86,21 +86,17 @@ public class GmailInboxSyncService {
                 : historyStateStore.claim(userId, false);
         String trigger = allowManualRetry ? "MANUAL" : "SCHEDULER";
         String syncType = syncType(claim);
+        if (claim.authenticationRequired()) {
+            log.debug("SYNC_SKIPPED event=SYNC_SKIPPED connectionId={} reason=RECONNECT_REQUIRED trigger={}",
+                    claim.connectionId(), trigger);
+            return reconnectRequiredResponse();
+        }
         log.info(
                 "SYNC_STARTED event=SYNC_STARTED connectionId={} syncType={} trigger={} batchId={} phase={} "
                         + "pageTokenPresent={} messageOffset={} pendingMessageCount={} retryAttempt={}",
                 claim.connectionId(), syncType, trigger, claim.lockId(), phaseName(claim.phase()),
                 hasText(claim.pageToken()), claim.messageOffset(), claim.pendingMessageIds().size(),
                 claim.retryAttempts() + 1);
-        if (claim.authenticationRequired()) {
-            log.warn("SYNC_FAILED event=SYNC_FAILED connectionId={} syncType={} batchId={} "
-                            + "exceptionCategory=AUTHENTICATION_REQUIRED",
-                    claim.connectionId(), syncType, claim.lockId());
-            return new RefreshEmailsResponse(
-                    0, 0, false, false, false, "AUTH_REQUIRED",
-                    "A Gmail újracsatlakoztatása szükséges a szinkron folytatásához.",
-                    false, null, true);
-        }
         if (claim.retryAt() != null && claim.retryAt().isAfter(clock.instant())) {
             log.info("SYNC_RETRY_SCHEDULED event=SYNC_RETRY_SCHEDULED connectionId={} syncType={} "
                             + "batchId={} retryAt={} retryAttempt={}",
@@ -123,7 +119,7 @@ public class GmailInboxSyncService {
         }
 
         try {
-            String accessToken = accessToken(claim.gmailAddress());
+            String accessToken = accessToken(claim.connectionId());
             String phase = claim.phase();
             String cursor = claim.cursor();
             String baselineId = claim.baselineId();
@@ -239,11 +235,16 @@ public class GmailInboxSyncService {
             }
             if (ex instanceof GmailBackfillException gmailException
                     && "GMAIL_AUTHENTICATION_REQUIRED".equals(gmailException.getCode())) {
-                logSyncFailure(claim, syncType, ex);
-                historyStateStore.markAuthenticationRequired(claim.connectionId(), claim.lockId());
-                return new RefreshEmailsResponse(
-                        0, 0, false, false, false, "AUTH_REQUIRED",
-                        gmailException.getMessage(), false, null, true);
+                String category = ex instanceof GmailAuthenticationRequiredException authException
+                        ? safeLogValue(authException.getReason()) : "UNKNOWN";
+                boolean transition = historyStateStore.markAuthenticationRequired(
+                        claim.connectionId(), claim.lockId(), category);
+                if (transition) {
+                    log.warn("SYNC_RECONNECT_REQUIRED event=SYNC_RECONNECT_REQUIRED connectionId={} "
+                                    + "syncType={} exceptionCategory=AUTHENTICATION_REQUIRED reason={} at={}",
+                            claim.connectionId(), syncType, category, clock.instant());
+                }
+                return reconnectRequiredResponse();
             }
             logSyncFailure(claim, syncType, ex);
             releaseHistory(claim.connectionId(), claim.lockId(), ex);
@@ -280,6 +281,13 @@ public class GmailInboxSyncService {
                     true, retryAt.atOffset(ZoneOffset.UTC), false);
         }
         return waitingResponse(claim.phase(), retryAt);
+    }
+
+    private RefreshEmailsResponse reconnectRequiredResponse() {
+        return new RefreshEmailsResponse(
+                0, 0, false, false, false, "AUTH_REQUIRED",
+                "A Gmail-kapcsolat lejárt vagy megszakadt. Csatlakoztasd újra a levelezést a szinkronizáció folytatásához.",
+                false, null, true);
     }
 
     private RefreshEmailsResponse waitingResponse(String phase, Instant retryAt) {
@@ -620,14 +628,12 @@ public class GmailInboxSyncService {
             return Optional.empty();
         }
 
-        JsonNode headers = fullMessage.path("payload").path("headers");
-        EmailCategory category = emailService.categorizeMessage(headers, messageId);
         return Optional.of(emailService.createEmailFromGmailResponse(
                 null,
                 messageId,
                 fullMessage.path("payload").path("headers"),
                 fullMessage,
-                category));
+                EmailCategory.OTHER));
     }
 
     private Instant messageInstant(JsonNode message) {
@@ -663,12 +669,8 @@ public class GmailInboxSyncService {
                 && !labelIds.contains("TRASH");
     }
 
-    private String accessToken(String gmailAddress) {
-        return gmailService.getOAuth2AccessToken(gmailAddress)
-                .orElseThrow(() -> new GmailBackfillException(
-                        HttpStatus.FAILED_DEPENDENCY,
-                        "GMAIL_AUTHENTICATION_REQUIRED",
-                        "A Gmail-hitelesítés lejárt vagy nem érhető el. Csatlakoztasd újra a Gmail-fiókot."));
+    private String accessToken(Long connectionId) {
+        return tokenProvider.accessToken(connectionId);
     }
 
     private JsonNode getJson(
@@ -709,8 +711,8 @@ public class GmailInboxSyncService {
                 throw ex;
             }
             if (status == HttpStatus.UNAUTHORIZED || status == HttpStatus.FORBIDDEN) {
-                throw new GmailBackfillException(
-                        HttpStatus.FAILED_DEPENDENCY, "GMAIL_AUTHENTICATION_REQUIRED",
+                throw new GmailAuthenticationRequiredException(
+                        status.value() + "_" + safeLogValue(ex.getReason()),
                         "A Gmail-hitelesítés lejárt vagy nem rendelkezik a szükséges hozzáféréssel. Csatlakoztasd újra a Gmail-fiókot.");
             }
             if (status.is5xxServerError()) {

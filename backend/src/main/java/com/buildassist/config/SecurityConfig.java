@@ -2,6 +2,7 @@ package com.buildassist.config;
 
 import com.buildassist.security.JwtAuthenticationEntryPoint;
 import com.buildassist.security.JwtAuthenticationFilter;
+import com.buildassist.security.OAuth2AuthenticationFailureHandler;
 import com.buildassist.security.OAuth2AuthenticationSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,14 +23,17 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtFilter;
     private final JwtAuthenticationEntryPoint entryPoint;
     private final OAuth2AuthenticationSuccessHandler oauth2SuccessHandler;
+    private final OAuth2AuthenticationFailureHandler oauth2FailureHandler;
 
     public SecurityConfig(
             JwtAuthenticationFilter jwtFilter,
             JwtAuthenticationEntryPoint entryPoint,
-            OAuth2AuthenticationSuccessHandler oauth2SuccessHandler) {
+            OAuth2AuthenticationSuccessHandler oauth2SuccessHandler,
+            OAuth2AuthenticationFailureHandler oauth2FailureHandler) {
         this.jwtFilter = jwtFilter;
         this.entryPoint = entryPoint;
         this.oauth2SuccessHandler = oauth2SuccessHandler;
+        this.oauth2FailureHandler = oauth2FailureHandler;
     }
 
     @Bean
@@ -47,7 +51,8 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/health").permitAll()
                 .anyRequest().authenticated())
             .oauth2Login(oauth2 -> oauth2
-                .successHandler(oauth2SuccessHandler))
+                .successHandler(oauth2SuccessHandler)
+                .failureHandler(oauth2FailureHandler))
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -57,5 +62,3 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 }
-
-

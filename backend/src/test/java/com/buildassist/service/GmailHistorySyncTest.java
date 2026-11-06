@@ -48,7 +48,7 @@ class GmailHistorySyncTest {
 
     private GmailBackfillStateStore backfillStateStore;
     private GmailHistoryStateStore historyStateStore;
-    private GmailService gmailService;
+    private GmailTokenProvider gmailService;
     private EmailService emailService;
     private EmailRepository emailRepository;
     private RestTemplate restTemplate;
@@ -60,7 +60,7 @@ class GmailHistorySyncTest {
     void setUp() {
         backfillStateStore = mock(GmailBackfillStateStore.class);
         historyStateStore = mock(GmailHistoryStateStore.class);
-        gmailService = mock(GmailService.class);
+        gmailService = mock(GmailTokenProvider.class);
         emailService = mock(EmailService.class);
         emailRepository = mock(EmailRepository.class);
         restTemplate = new RestTemplate();
@@ -85,7 +85,7 @@ class GmailHistorySyncTest {
                 new ObjectMapper(),
                 new GmailRetryPolicy(properties),
                 Clock.fixed(NOW, ZoneOffset.UTC));
-        when(gmailService.getOAuth2AccessToken("owner@gmail.com")).thenReturn(Optional.of("access-token"));
+        when(gmailService.accessToken(CONNECTION_ID)).thenReturn("access-token");
     }
 
     @Test
@@ -125,9 +125,6 @@ class GmailHistorySyncTest {
                 "label:INBOX category:primary -category:promotions -category:social "
                         + "-category:updates -in:spam -in:trash after:1776880799",
                 queryCaptor.getValue());
-        verify(emailService, never()).categorizeMessage(any(), eq("before"));
-        verify(emailService).categorizeMessage(any(), eq("exact"));
-        verify(emailService).categorizeMessage(any(), eq("after"));
         server.verify();
     }
 
@@ -255,7 +252,6 @@ class GmailHistorySyncTest {
 
         assertTrue(response.complete());
         assertEquals(2, response.processedCount());
-        verify(emailService, never()).categorizeMessage(any(), anyString());
         verify(emailRepository).existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "old-primary");
         verify(emailRepository).existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, "not-primary");
         server.verify();
@@ -278,13 +274,12 @@ class GmailHistorySyncTest {
                            {"name":"From","value":"customer@example.com"}],
                            "body":{"data":"cXVvdGUtcmVxdWVzdC1ib2R5"}}}
                         """, APPLICATION_JSON));
-        when(emailService.categorizeMessage(any(), eq("new-message"))).thenReturn(EmailCategory.QUOTE_REQUEST);
         when(emailService.createEmailFromGmailResponse(
-                eq(null), eq("new-message"), any(), any(), eq(EmailCategory.QUOTE_REQUEST)))
+                eq(null), eq("new-message"), any(), any(), eq(EmailCategory.OTHER)))
                 .thenAnswer(invocation -> {
                     Email email = new Email();
                     email.setGmailMessageId("new-message");
-                    email.setCategory(EmailCategory.QUOTE_REQUEST);
+                    email.setCategory(EmailCategory.OTHER);
                     email.setBodyText("quote-request-body");
                     return email;
                 });
@@ -295,14 +290,12 @@ class GmailHistorySyncTest {
 
         assertEquals(1, response.fetchedCount());
         assertTrue(response.complete());
-        verify(emailService).categorizeMessage(any(), eq("new-message"));
         org.mockito.ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> fullMessage =
                 org.mockito.ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
         verify(emailService).createEmailFromGmailResponse(
-                eq(null), eq("new-message"), any(), fullMessage.capture(), eq(EmailCategory.QUOTE_REQUEST));
+                eq(null), eq("new-message"), any(), fullMessage.capture(), eq(EmailCategory.OTHER));
         assertEquals("cXVvdGUtcmVxdWVzdC1ib2R5",
                 fullMessage.getValue().path("payload").path("body").path("data").asText());
-        verify(emailService, never()).categorizeMessage(any(), eq("stored-message"));
         server.verify();
     }
 
@@ -363,15 +356,14 @@ class GmailHistorySyncTest {
     }
 
     private void stubSpamEmail(String id) {
-        when(emailService.categorizeMessage(any(), eq(id))).thenReturn(EmailCategory.SPAM);
         when(emailService.createEmailFromGmailResponse(
-                eq(null), eq(id), any(), any(), eq(EmailCategory.SPAM))).thenAnswer(invocation -> {
+                eq(null), eq(id), any(), any(), eq(EmailCategory.OTHER))).thenAnswer(invocation -> {
                     Email email = new Email();
                     email.setGmailMessageId(id);
                     email.setSubject("Newsletter");
                     email.setFromAddress("news@example.com");
-                    email.setBodyText("");
-                    email.setCategory(EmailCategory.SPAM);
+                    email.setBodyText("superfluous-test-body");
+                    email.setCategory(EmailCategory.OTHER);
                     email.setEmailReceivedAt(java.time.OffsetDateTime.ofInstant(
                             Instant.ofEpochMilli(invocation.getArgument(3, com.fasterxml.jackson.databind.JsonNode.class)
                                     .path("internalDate").asLong()),

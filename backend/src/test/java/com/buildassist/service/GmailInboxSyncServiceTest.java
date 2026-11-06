@@ -50,7 +50,7 @@ class GmailInboxSyncServiceTest {
 
     private GmailHistoryStateStore historyStateStore;
     private EmailRepository emailRepository;
-    private GmailService gmailService;
+    private GmailTokenProvider gmailService;
     private EmailService emailService;
     private RestTemplate restTemplate;
     private MockRestServiceServer server;
@@ -62,7 +62,7 @@ class GmailInboxSyncServiceTest {
     void setUp() {
         historyStateStore = mock(GmailHistoryStateStore.class);
         emailRepository = mock(EmailRepository.class);
-        gmailService = mock(GmailService.class);
+        gmailService = mock(GmailTokenProvider.class);
         emailService = mock(EmailService.class);
         restTemplate = new RestTemplate();
         server = MockRestServiceServer.bindTo(restTemplate).build();
@@ -82,7 +82,7 @@ class GmailInboxSyncServiceTest {
                 new ObjectMapper(),
                 new GmailRetryPolicy(properties),
                 clock);
-        when(gmailService.getOAuth2AccessToken("owner@gmail.com")).thenReturn(Optional.of("access-token"));
+        when(gmailService.accessToken(CONNECTION_ID)).thenReturn("access-token");
     }
 
     @Test
@@ -418,7 +418,7 @@ class GmailInboxSyncServiceTest {
         RefreshEmailsResponse oauthExpired = syncService.refresh(USER_ID);
         assertTrue(oauthExpired.reconnectRequired());
         assertFalse(oauthExpired.waiting());
-        verify(historyStateStore).markAuthenticationRequired(CONNECTION_ID, LOCK_ID);
+        verify(historyStateStore).markAuthenticationRequired(eq(CONNECTION_ID), eq(LOCK_ID), any());
         server.verify();
     }
 
@@ -435,9 +435,68 @@ class GmailInboxSyncServiceTest {
 
         assertTrue(response.reconnectRequired());
         assertFalse(response.waiting());
-        verify(historyStateStore).markAuthenticationRequired(CONNECTION_ID, LOCK_ID);
+        verify(historyStateStore).markAuthenticationRequired(eq(CONNECTION_ID), eq(LOCK_ID), any());
         verify(historyStateStore, never()).defer(any(), any(), any(), any(Integer.class));
         server.verify();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void refreshTokenInvalidGrantMarksReconnectOnceAndNeverCallsGmail(CapturedOutput output) {
+        GmailHistoryStateStore.Claim first = claim("BOOTSTRAP", null, null, List.of(), 0, null);
+        when(historyStateStore.claim(USER_ID, false)).thenReturn(first);
+        when(gmailService.accessToken(CONNECTION_ID)).thenThrow(
+                new GmailAuthenticationRequiredException("invalid_grant", "reconnect"));
+        when(historyStateStore.markAuthenticationRequired(CONNECTION_ID, LOCK_ID, "invalid_grant"))
+                .thenReturn(true);
+
+        RefreshEmailsResponse response = syncService.resumeForScheduler(USER_ID);
+
+        assertTrue(response.reconnectRequired());
+        verify(historyStateStore).markAuthenticationRequired(CONNECTION_ID, LOCK_ID, "invalid_grant");
+        assertEquals(1, countOccurrences(output.getAll(), "event=SYNC_RECONNECT_REQUIRED"));
+        assertFalse(output.getAll().contains("SYNC_FAILED"));
+        assertFalse(output.getAll().contains("access-token"));
+        server.verify();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void alreadyFlaggedConnectionIsSkippedSilentlyWithoutGmailRequests(CapturedOutput output) {
+        GmailHistoryStateStore.Claim blocked = new GmailHistoryStateStore.Claim(
+                GmailHistoryStateStore.Status.CLAIMED, null, CONNECTION_ID, "owner@gmail.com", "h-1",
+                null, null, CUTOFF, 6, QUERY, null, null, null, List.of(), 0, null, 0, false, true);
+        when(historyStateStore.claim(USER_ID, false)).thenReturn(blocked);
+
+        for (int i = 0; i < 3; i++) {
+            assertTrue(syncService.resumeForScheduler(USER_ID).reconnectRequired());
+        }
+
+        verify(gmailService, never()).accessToken(any());
+        verify(historyStateStore, never()).markAuthenticationRequired(any(), any(), any());
+        assertFalse(output.getAll().contains("SYNC_FAILED"));
+        assertFalse(output.getAll().contains("WARN"));
+        assertFalse(output.getAll().contains("ERROR"));
+        server.verify();
+    }
+
+    @Test
+    void transientTokenRefreshFailureIsDeferredInsteadOfRequiringReconnect() {
+        when(historyStateStore.claim(USER_ID, false))
+                .thenReturn(claim("BOOTSTRAP", null, null, List.of(), 0, null));
+        when(gmailService.accessToken(CONNECTION_ID)).thenThrow(
+                new GmailApiException(503, "token_refresh_unavailable", GmailApiOperation.PROFILE_GET, null));
+
+        RefreshEmailsResponse response = syncService.resumeForScheduler(USER_ID);
+
+        assertTrue(response.waiting());
+        assertFalse(response.reconnectRequired());
+        verify(historyStateStore).defer(eq(CONNECTION_ID), eq(LOCK_ID), any(), eq(8));
+        verify(historyStateStore, never()).markAuthenticationRequired(any(), any(), any());
+    }
+
+    private static int countOccurrences(String text, String token) {
+        return text.split(java.util.regex.Pattern.quote(token), -1).length - 1;
     }
 
     private GmailHistoryStateStore.Claim claim(
@@ -522,12 +581,11 @@ class GmailInboxSyncServiceTest {
                          "payload":{"headers":[{"name":"List-ID","value":"list.example"}]}}
                         """, APPLICATION_JSON));
         when(emailRepository.existsByGmailConnectionIdAndGmailMessageId(CONNECTION_ID, id)).thenReturn(false);
-        when(emailService.categorizeMessage(any(), eq(id))).thenReturn(EmailCategory.SPAM);
         when(emailService.createEmailFromGmailResponse(
-                eq(null), eq(id), any(), any(), eq(EmailCategory.SPAM))).thenAnswer(invocation -> {
+                eq(null), eq(id), any(), any(), eq(EmailCategory.OTHER))).thenAnswer(invocation -> {
             Email email = new Email();
             email.setGmailMessageId(id);
-            email.setCategory(EmailCategory.SPAM);
+            email.setCategory(EmailCategory.OTHER);
             return email;
         });
     }

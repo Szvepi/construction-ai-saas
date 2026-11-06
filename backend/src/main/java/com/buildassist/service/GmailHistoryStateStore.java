@@ -103,11 +103,17 @@ public class GmailHistoryStateStore {
     }
 
     @Transactional
-    public void markAuthenticationRequired(Long connectionId, UUID lockId) {
+    public boolean markAuthenticationRequired(Long connectionId, UUID lockId, String category) {
         GmailConnection connection = requireLock(connectionId, lockId);
-        connection.setGmailSyncAuthRequired(true);
+        boolean transition = !connection.isGmailSyncAuthRequired();
+        if (transition) {
+            connection.setGmailSyncAuthRequired(true);
+            connection.setGmailSyncAuthErrorCategory(category);
+            connection.setGmailSyncAuthRequiredAt(clock.instant());
+        }
         releaseLock(connection);
         connections.save(connection);
+        return transition;
     }
 
     @Transactional
@@ -261,7 +267,8 @@ public class GmailHistoryStateStore {
                     email.getFromAddress(),
                     email.getBodyText(),
                     email.getEmailReceivedAt(),
-                    email.getCategory().name());
+                    email.getCategory().name(),
+                    email.getClassificationMetadata());
         }
         return importedCount;
     }

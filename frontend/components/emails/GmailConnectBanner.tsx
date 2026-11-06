@@ -20,9 +20,13 @@ export function GmailConnectBanner({ status, onConnect, loading }: Props) {
 
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-      <p className="text-sm text-amber-900">Kapcsold össze Gmail fiókodat az e-mailek lekéréséhez.</p>
+      <p className="text-sm text-amber-900">
+        {status?.reconnectRequired
+          ? "A Gmail-kapcsolat lejárt vagy megszakadt. Csatlakoztasd újra a levelezést a szinkronizáció folytatásához."
+          : "Kapcsold össze Gmail fiókodat az e-mailek lekéréséhez."}
+      </p>
       <Button className="mt-2" onClick={onConnect} disabled={loading}>
-        Gmail csatlakoztatása
+        {status?.reconnectRequired ? "Gmail újracsatlakoztatása" : "Gmail csatlakoztatása"}
       </Button>
     </div>
   );

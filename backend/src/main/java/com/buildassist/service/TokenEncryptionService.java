@@ -18,23 +18,21 @@ public class TokenEncryptionService {
 
     private static final int TAG_LENGTH_BITS = 128;
 
-    private final AppProperties appProperties;
+    private final byte[] key;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
     public TokenEncryptionService(AppProperties appProperties) {
-        this.appProperties = appProperties;
+        String configuredKey = appProperties.getEncryption().getAesKey();
+        byte[] keyBytes = configuredKey == null ? new byte[0] : configuredKey.getBytes(StandardCharsets.UTF_8);
+        if (keyBytes.length != 32) {
+            throw new IllegalStateException("TOKEN_ENCRYPTION_KEY must be configured as exactly 32 UTF-8 bytes");
+        }
+        this.key = keyBytes;
     }
 
     public String encrypt(String plaintext) {
         try {
-            byte[] keyBytes = appProperties.getEncryption().getAesKey().getBytes(StandardCharsets.UTF_8);
-            if (keyBytes.length < 32) {
-                throw new IllegalStateException("AES key must be 32 bytes for AES-256-GCM");
-            }
-            byte[] key = new byte[32];
-            System.arraycopy(keyBytes, 0, key, 0, 32);
-
             byte[] iv = new byte[IV_LENGTH];
             secureRandom.nextBytes(iv);
 
@@ -64,13 +62,6 @@ public class TokenEncryptionService {
             System.arraycopy(decoded, 0, iv, 0, IV_LENGTH);
             byte[] cipherBytes = new byte[decoded.length - IV_LENGTH];
             System.arraycopy(decoded, IV_LENGTH, cipherBytes, 0, cipherBytes.length);
-
-            byte[] keyBytes = appProperties.getEncryption().getAesKey().getBytes(StandardCharsets.UTF_8);
-            if (keyBytes.length < 32) {
-                throw new IllegalStateException("AES key must be 32 bytes for AES-256-GCM");
-            }
-            byte[] key = new byte[32];
-            System.arraycopy(keyBytes, 0, key, 0, 32);
 
             SecretKeySpec keySpec = new SecretKeySpec(key, "AES");
             GCMParameterSpec gcmSpec = new GCMParameterSpec(TAG_LENGTH_BITS, iv);

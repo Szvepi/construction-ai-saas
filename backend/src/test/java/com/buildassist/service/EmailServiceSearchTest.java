@@ -70,7 +70,7 @@ class EmailServiceSearchTest {
 
         assertEquals(0, response.totalElements());
         assertEquals(0, response.categoryCounts().get(EmailCategory.QUOTE_REQUEST));
-        assertEquals(3, response.categoryCounts().size());
+        assertEquals(4, response.categoryCounts().size());
         assertEquals(3, response.reviewCount());
         verify(gmailConnectionRepository).findByUserId(5L);
         verify(emailRepository).searchEmailsAscending(eq(77L), any(), any(), any(), any());

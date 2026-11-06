@@ -120,10 +120,48 @@ class GmailBackfillStateStoreIntegrationTest {
         persisted.setGmailSyncRetryAt(Instant.now().minusSeconds(1));
         gmailConnectionRepository.save(persisted);
         GmailHistoryStateStore.Claim retry = historyStateStore.claim(connection.getUser().getId(), false);
-        historyStateStore.markAuthenticationRequired(connection.getId(), retry.lockId());
+        historyStateStore.markAuthenticationRequired(connection.getId(), retry.lockId(), "invalid_grant");
         GmailHistoryStateStore.Claim authBlocked = historyStateStore.claim(connection.getUser().getId(), false);
         assertTrue(authBlocked.authenticationRequired());
         assertNull(authBlocked.lockId());
+    }
+
+    @Test
+    void dueSelectionSkipsReconnectRequiredAndPreservesHistoryForReconnect() {
+        Instant now = Instant.now();
+        GmailConnection healthy = saveConnection("due-ok@example.com", "ok@gmail.com");
+        GmailConnection reconnect = saveConnection("due-auth@example.com", "auth@gmail.com");
+        GmailConnection waiting = saveConnection("due-wait@example.com", "wait@gmail.com");
+        GmailConnection inactive = saveConnection("due-off@example.com", "off@gmail.com");
+        inactive.getUser().setActive(false);
+        userRepository.saveAndFlush(inactive.getUser());
+        waiting.setGmailSyncRetryAt(now.plusSeconds(300));
+        gmailConnectionRepository.saveAndFlush(waiting);
+        reconnect.setHistorySyncCursor("history-42");
+        gmailConnectionRepository.saveAndFlush(reconnect);
+        GmailHistoryStateStore.Claim claim = historyStateStore.claim(reconnect.getUser().getId(), false);
+        assertTrue(historyStateStore.markAuthenticationRequired(reconnect.getId(), claim.lockId(), "invalid_grant"));
+
+        List<Long> due = gmailConnectionRepository.findUserIdsDueForGmailSync(Instant.now());
+        assertTrue(due.contains(healthy.getUser().getId()));
+        assertFalse(due.contains(reconnect.getUser().getId()));
+        assertFalse(due.contains(waiting.getUser().getId()));
+        assertFalse(due.contains(inactive.getUser().getId()));
+
+        GmailConnection flagged = gmailConnectionRepository.findById(reconnect.getId()).orElseThrow();
+        assertEquals("invalid_grant", flagged.getGmailSyncAuthErrorCategory());
+        org.junit.jupiter.api.Assertions.assertNotNull(flagged.getGmailSyncAuthRequiredAt());
+
+        flagged.setGmailSyncAuthRequired(false);
+        flagged.setGmailSyncAuthErrorCategory(null);
+        flagged.setGmailSyncAuthRequiredAt(null);
+        gmailConnectionRepository.saveAndFlush(flagged);
+
+        assertTrue(gmailConnectionRepository.findUserIdsDueForGmailSync(Instant.now())
+                .contains(reconnect.getUser().getId()));
+        GmailHistoryStateStore.Claim resumed = historyStateStore.claim(reconnect.getUser().getId(), false);
+        assertEquals("history-42", resumed.cursor());
+        assertFalse(resumed.authenticationRequired());
     }
 
     @Test

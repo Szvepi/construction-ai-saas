@@ -102,4 +102,10 @@ public class GmailConnection {
     @Column(name = "gmail_sync_auth_required", nullable = false)
     private boolean gmailSyncAuthRequired;
 
+    @Column(name = "gmail_sync_auth_error_category", length = 64)
+    private String gmailSyncAuthErrorCategory;
+
+    @Column(name = "gmail_sync_auth_required_at")
+    private Instant gmailSyncAuthRequiredAt;
+
 }

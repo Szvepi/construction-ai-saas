@@ -120,7 +120,8 @@ public class GmailBackfillStateStore {
                     email.getFromAddress(),
                     email.getBodyText(),
                     email.getEmailReceivedAt(),
-                    email.getCategory().name());
+                    email.getCategory().name(),
+                    email.getClassificationMetadata());
         }
 
         connection.setBackfillPageToken(nextPageToken);

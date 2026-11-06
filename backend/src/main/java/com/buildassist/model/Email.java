@@ -44,4 +44,30 @@ public class Email {
     @Column(name = "category", nullable = false, length = 50)
     private EmailCategory category = EmailCategory.OTHER;
 
+    @Column(name = "classification_metadata", columnDefinition = "TEXT")
+    private String classificationMetadata;
+
+    @Column(name = "classification_status", nullable = false, length = 20)
+    private String classificationStatus = "LEGACY";
+
+    @Column(name = "classification_source", nullable = false, length = 20)
+    private String classificationSource = "LEGACY";
+
+    @Column(name = "classification_version", length = 32)
+    private String classificationVersion;
+
+    @Column(name = "classification_reason", length = 500)
+    private String classificationReason;
+
+    @Column(name = "classification_evidence", length = 500)
+    private String classificationEvidence;
+
+    @Column(name = "classification_attempts", nullable = false)
+    private int classificationAttempts;
+
+    @Column(name = "classification_retry_at")
+    private java.time.Instant classificationRetryAt;
+
+    @Column(name = "classification_last_attempt_at")
+    private java.time.Instant classificationLastAttemptAt;
 }

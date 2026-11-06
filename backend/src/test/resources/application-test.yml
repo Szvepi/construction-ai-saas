@@ -6,3 +6,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+app:
+  gmail:
+    sync-enabled: false
+  email-classification:
+    enabled: false

@@ -4,8 +4,11 @@ export type EmailSummary = {
   fromAddress: string;
   receivedAt: string;
   replied: boolean;
-  category: "QUOTE_REQUEST" | "SPAM" | "OTHER";
+  category: "QUOTE_REQUEST" | "SPAM" | "OTHER" | "CLASSIFICATION_REVIEW";
   draftStatus: "DRAFT" | "PENDING_REVIEW" | "READY" | "SENT" | null;
+  classificationStatus: "PENDING" | "RETRY" | "PROCESSING" | "CLASSIFIED" | "REVIEW" | "FAILED" | "LEGACY";
+  classificationReason: string | null;
+  classificationEvidence: string | null;
 };
 
 export type EmailSearchResponse = {
@@ -20,7 +23,11 @@ export type EmailSearchResponse = {
 
 export type EmailDetail = EmailSummary & { bodyText: string; draftEmail?: GenerateDraftResponse | null };
 
-export type GmailStatus = { connected: boolean; gmailAddress: string | null };
+export type GmailStatus = {
+  connected: boolean;
+  gmailAddress: string | null;
+  reconnectRequired: boolean;
+};
 
 export type CalculationStatus = "VALID" | "NEEDS_INPUT" | "NEEDS_REVIEW" | "INVALID";
 export type WorkRecognitionStatus = "MAPPED" | "PARTIALLY_MAPPED" | "UNMAPPED" | "NEEDS_REVIEW";

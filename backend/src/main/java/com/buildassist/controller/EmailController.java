@@ -6,8 +6,10 @@ import com.buildassist.dto.EmailDtos.EmailDetailResponse;
 import com.buildassist.dto.EmailDtos.EmailSearchResponse;
 import com.buildassist.dto.EmailDtos.EmailSummaryResponse;
 import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
+import com.buildassist.dto.EmailDtos.ReclassificationResponse;
 import com.buildassist.model.EmailCategory;
 import com.buildassist.security.SecurityUtils;
+import com.buildassist.service.EmailClassificationService;
 import com.buildassist.service.EmailService;
 import com.buildassist.service.GmailInboxSyncService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,10 +30,15 @@ public class EmailController {
 
     private final EmailService emailService;
     private final GmailInboxSyncService gmailInboxSyncService;
+    private final EmailClassificationService emailClassificationService;
 
-    public EmailController(EmailService emailService, GmailInboxSyncService gmailInboxSyncService) {
+    public EmailController(
+            EmailService emailService,
+            GmailInboxSyncService gmailInboxSyncService,
+            EmailClassificationService emailClassificationService) {
         this.emailService = emailService;
         this.gmailInboxSyncService = gmailInboxSyncService;
+        this.emailClassificationService = emailClassificationService;
     }
 
     @GetMapping
@@ -71,5 +78,12 @@ public class EmailController {
             @PathVariable Long id,
             @RequestBody EmailDtos.UpdateCategoryRequest request) {
         return emailService.updateCategory(SecurityUtils.currentUserId(), id, request.category());
+    }
+
+    @PostMapping("/reclassify")
+    public ReclassificationResponse reclassify(
+            @RequestParam(defaultValue = "100") int limit) {
+        return new ReclassificationResponse(
+                emailClassificationService.enqueueReclassification(SecurityUtils.currentUserId(), limit));
     }
 }

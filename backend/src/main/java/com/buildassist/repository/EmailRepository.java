@@ -3,11 +3,13 @@ package com.buildassist.repository;
 import com.buildassist.model.Email;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,9 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
         Boolean getReplied();
         String getCategory();
         String getDraftStatus();
+        String getClassificationStatus();
+        String getClassificationReason();
+        String getClassificationEvidence();
     }
 
     interface CategoryCount {
@@ -44,10 +49,12 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
     @Query(value = """
             INSERT INTO emails (
                 gmail_connection_id, gmail_message_id, subject, from_address, body_text,
-                email_received_at, synced_at, is_replied, category
+                email_received_at, synced_at, is_replied, category, classification_metadata,
+                classification_status, classification_source, classification_retry_at
             ) VALUES (
                 :gmailConnectionId, :gmailMessageId, :subject, :fromAddress, :bodyText,
-                :receivedAt, NOW(), FALSE, :category
+                :receivedAt, NOW(), FALSE, :category, :classificationMetadata,
+                'PENDING', 'PENDING', NOW()
             )
             ON CONFLICT (gmail_connection_id, gmail_message_id) DO NOTHING
             """, nativeQuery = true)
@@ -58,7 +65,44 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
             @Param("fromAddress") String fromAddress,
             @Param("bodyText") String bodyText,
             @Param("receivedAt") OffsetDateTime receivedAt,
-            @Param("category") String category);
+            @Param("category") String category,
+            @Param("classificationMetadata") String classificationMetadata);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(value = """
+            SELECT * FROM emails
+            WHERE classification_source <> 'MANUAL'
+              AND (
+                    (classification_status IN ('PENDING', 'RETRY')
+                     AND (classification_retry_at IS NULL OR classification_retry_at <= :now))
+                    OR (classification_status = 'PROCESSING'
+                        AND classification_last_attempt_at <= :staleBefore)
+              )
+            ORDER BY email_received_at ASC, id ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """, nativeQuery = true)
+    Optional<Email> lockNextClassificationDue(
+            @Param("now") Instant now,
+            @Param("staleBefore") Instant staleBefore);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT email FROM Email email
+            WHERE email.gmailConnection.id = :gmailConnectionId
+              AND email.classificationSource <> 'MANUAL'
+              AND email.classificationStatus IN ('LEGACY', 'CLASSIFIED', 'REVIEW', 'FAILED')
+              AND (
+                    email.classificationStatus = 'LEGACY'
+                    OR email.classificationVersion IS NULL
+                    OR email.classificationVersion <> :classificationVersion
+              )
+            ORDER BY email.emailReceivedAt ASC, email.id ASC
+            """)
+    List<Email> findReclassificationCandidates(
+            @Param("gmailConnectionId") Long gmailConnectionId,
+            @Param("classificationVersion") String classificationVersion,
+            org.springframework.data.domain.Pageable pageable);
 
     String SEARCH_FROM_WHERE = """
             FROM emails e
@@ -95,7 +139,10 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
                    e.email_received_at AS "receivedAt",
                    e.is_replied AS "replied",
                    e.category AS "category",
-                   latest.status AS "draftStatus"
+                   latest.status AS "draftStatus",
+                   e.classification_status AS "classificationStatus",
+                   e.classification_reason AS "classificationReason",
+                   e.classification_evidence AS "classificationEvidence"
             """ + SEARCH_FROM_WHERE;
 
     String SEARCH_COUNT = "SELECT COUNT(*)\n" + SEARCH_FROM_WHERE;
