@@ -1,5 +1,6 @@
 package com.buildassist.config;
 
+import java.math.BigDecimal;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -61,15 +62,24 @@ public class AppProperties {
 
     @Data
     public static class EmailClassification {
-        private boolean enabled = true;
-        private String version = "v1";
-        private int maxPerRun = 5;
-        private int maxPerDay = 100;
-        private int maxReclassificationBatch = 100;
-        private int maxAttempts = 3;
-        private int retryBaseSeconds = 300;
-        private int staleProcessingMinutes = 10;
-        private int pollIntervalMs = 30_000;
-        private int maxBodyCharacters = 12_000;
+        private boolean enabled;
+        private String version;
+        private int maxPerRun;
+        private int maxPerDay;
+        private int maxPerUserPerDay;
+        private BigDecimal maxCostUsdPerDay;
+        private BigDecimal inputPriceUsdPerMillionTokens;
+        private BigDecimal outputPriceUsdPerMillionTokens;
+        private int maxInputTokens;
+        private int maxOutputTokens;
+        private String dailyBudgetTimeZone;
+        private int freshPriorityMinutes;
+        private int metricsIntervalMs;
+        private int maxReclassificationBatch;
+        private int maxAttempts;
+        private int retryBaseSeconds;
+        private int retryMaxSeconds;
+        private int staleProcessingMinutes;
+        private int pollIntervalMs;
     }
 }

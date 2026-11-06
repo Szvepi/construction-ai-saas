@@ -2,5 +2,11 @@ package com.buildassist.service;
 
 public interface EmailClassificationModel {
 
-    String classify(String emailContext);
+    ClassificationResponse classify(String emailContext);
+
+    record ClassificationResponse(String content, Integer inputTokens, Integer outputTokens) {
+        boolean hasUsage() {
+            return inputTokens != null && outputTokens != null;
+        }
+    }
 }

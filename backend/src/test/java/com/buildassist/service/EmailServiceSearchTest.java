@@ -70,7 +70,7 @@ class EmailServiceSearchTest {
 
         assertEquals(0, response.totalElements());
         assertEquals(0, response.categoryCounts().get(EmailCategory.QUOTE_REQUEST));
-        assertEquals(4, response.categoryCounts().size());
+        assertEquals(5, response.categoryCounts().size());
         assertEquals(3, response.reviewCount());
         verify(gmailConnectionRepository).findByUserId(5L);
         verify(emailRepository).searchEmailsAscending(eq(77L), any(), any(), any(), any());
@@ -190,5 +190,36 @@ class EmailServiceSearchTest {
 
         assertEquals("", spam.getBodyText());
         assertEquals("quote-request-body", quoteRequest.getBodyText());
+    }
+
+    @Test
+    void gmailHeaderNamesAreCaseInsensitiveAndMalformedHeadersFailOpen() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode fullMessage = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("""
+                        {"internalDate":"1792680000000","payload":{
+                          "headers":[
+                            {"name":"subject","value":"New roof work"},
+                            {"name":"from","value":"customer@example.com"},
+                            {"name":"auto-submitted","value":"no"},
+                            {"name":"list-unsubscribe","value":"<mailto:unsubscribe@example.com>"},
+                            {"value":"malformed"},
+                            null
+                          ],
+                          "body":{"data":"cXVvdGUtcmVxdWVzdC1ib2R5"}}}
+                        """);
+
+        Email email = emailService.createEmailFromGmailResponse(
+                null,
+                "lowercase-header-id",
+                fullMessage.path("payload").path("headers"),
+                fullMessage,
+                EmailCategory.OTHER);
+
+        assertEquals("New roof work", email.getSubject());
+        assertEquals("customer@example.com", email.getFromAddress());
+        com.fasterxml.jackson.databind.JsonNode metadata =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(email.getClassificationMetadata());
+        assertEquals("no", metadata.path("auto-submitted").asText());
+        assertEquals("<mailto:unsubscribe@example.com>", metadata.path("list-unsubscribe").asText());
     }
 }

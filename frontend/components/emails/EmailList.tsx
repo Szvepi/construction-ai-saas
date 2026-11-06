@@ -36,6 +36,7 @@ const CATEGORY_MAP: Record<EmailSummary["category"], {label: string; className: 
     OTHER: {label: "Egyéb", className: "border-slate-200 bg-slate-100 text-slate-700"},
     SPAM: {label: "Spam", className: "border-rose-100 bg-rose-50 text-rose-700"},
     CLASSIFICATION_REVIEW: {label: "Besorolás ellenőrzése", className: "border-violet-100 bg-violet-50 text-violet-700"},
+    UNCLASSIFIED: {label: "Nincs végleges besorolás", className: "border-sky-100 bg-sky-50 text-sky-700"},
 };
 const DRAFT_STATUS_MAP = {
     NONE: {label: "Nincs ajánlat", className: "border-slate-200 bg-slate-50 text-slate-600"},
@@ -380,7 +381,17 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                                                             {statusBadge.label}
                                                         </span>
                                                     )}
-                                                    {["PENDING", "RETRY", "PROCESSING"].includes(email.classificationStatus) && (
+                                                    {email.classificationStatus === "PENDING" && (
+                                                        <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                                                            Besorolásra vár
+                                                        </span>
+                                                    )}
+                                                    {email.classificationStatus === "RETRY" && (
+                                                        <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                                                            Újrapróbálásra vár
+                                                        </span>
+                                                    )}
+                                                    {email.classificationStatus === "PROCESSING" && (
                                                         <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                                                             Besorolás folyamatban
                                                         </span>

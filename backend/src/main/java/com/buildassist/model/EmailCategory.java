@@ -4,5 +4,6 @@ public enum EmailCategory {
     QUOTE_REQUEST,
     SPAM,
     OTHER,
-    CLASSIFICATION_REVIEW
+    CLASSIFICATION_REVIEW,
+    UNCLASSIFIED
 }

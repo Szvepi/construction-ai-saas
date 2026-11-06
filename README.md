@@ -58,6 +58,44 @@ Use **localhost** for DB/Redis in `.env` (defaults in `application.yml` match):
 
 The Docker `app` service overrides these to `postgres` / `redis` hostnames internally.
 
+Email classification budgets are configurable independently of Gmail API quotas.
+Defaults are 1,000 started AI calls per application per day, 150 per user per day,
+five claims per scheduler run, and an estimated global cost ceiling of USD 10 per day.
+Daily budget boundaries use UTC by default. The `EMAIL_CLASSIFICATION_*` variables
+in `.env.example` control the limits, input/output token prices, model token limits,
+fresh-email priority window, and metrics interval. The OpenAI token prices default
+to USD 0.15 / 1M input tokens and USD 0.60 / 1M output tokens for the configured
+`OPENAI_MODEL` (default `gpt-4o-mini`); update these values if the model or provider pricing changes.
+The estimated daily cost ceiling reserves a conservative estimate before starting a model call,
+then reconciles it to reported token usage (or a tokenizer estimate when usage is absent).
+Because final provider usage and billing are known only after a response, tokenizer and price
+differences or interrupted requests can make actual charges exceed the estimate; this is a
+best-effort application budget, not a guaranteed provider-side hard spending cap. Queued emails
+remain pending until capacity is available; hitting a daily limit is not counted as a
+classification failure and does not consume an email retry attempt.
+
+Classification uses a conservative AI-free prefilter only for explicit delivery-status
+reports, explicit automatic-reply headers, or mailing-list messages with multiple
+confirming headers (`List-Id`, `List-Unsubscribe`, and bulk or auto-generated evidence).
+`noreply` senders and `List-Unsubscribe` alone are never sufficient. Each automatic
+decision stores its rule ID on the email. Other messages, including web-form requests
+and ambiguous marketing messages, continue to the AI. AI input is converted from HTML
+to text, signatures and quoted history are separated, and the fresh message is favored
+within the configured token limit; forwarded messages retain both ends of their text.
+The original Gmail body is stored unchanged.
+
+The database queue distinguishes `FRESH`, `HISTORICAL`, `RECLASSIFICATION`, and
+`RETRY` work. Recent messages are prioritized, users are rotated by last claim time,
+and aged work is ordered by enqueue time to prevent permanent starvation. Until
+classification completes, an email has the `UNCLASSIFIED` category: it appears in
+**Összes**, not **Egyéb**, with a pending, processing, or retry status. No extra Inbox
+tab is added. Periodic `EMAIL_CLASSIFICATION_METRICS` and
+`EMAIL_CLASSIFICATION_USER_METRICS` logs report counts, tokens, estimated USD cost,
+queue size, processing delay, and limit hits without logging email content or addresses.
+The Hungarian email fixtures use mocked model responses; their assertions verify
+regressions and wiring, not real-model classification accuracy. Tests do not call the
+paid OpenAI API.
+
 Gmail API calls go through a Redis-coordinated quota limiter. It accounts for per-method
 quota-unit costs, the configured project and per-user limits, a safety margin, and one
 in-flight request per Gmail account. Configure the quota values from the actual Google
@@ -178,7 +216,7 @@ The current schema is created by the single `backend/src/main/resources/db/migra
 
 The consolidated V1 creates `users`, `gmail_connections`, `emails`, `email_drafts`, `company_profiles`, `catalog_items`, and `email_classification_daily_budget`. It includes Gmail backfill/history/retry state, email classification state, company tax/VAT settings, catalog pricing and calculation configuration, and the snapshot-backed draft, coverage, fingerprint, and optimistic-version fields. `email_drafts.quote_snapshot` is the sole quote-line/work representation. The old `line_items`, `unmapped_requests`, `requested_work_items`, and `catalog_items.calculation_strategy` columns are not part of this schema.
 
-This consolidated migration is for a fresh database. Any database already migrated by the previous V1/V20/V21/V22 files must be recreated before starting the application: V20–V22 are now folded into V1, whose checksum and schema have changed.
+The consolidation into V1 and the development-database rebuild were intentional. The supported migration chain is the current V1 followed by V2; do not restore superseded migrations or rewrite applied history. A database with a different migration history needs a separately planned forward-only migration, not Flyway repair, clean, or an ad hoc reset.
 
 ### Create a clean local database
 
@@ -192,7 +230,7 @@ $env:DATABASE_URL = "jdbc:postgresql://localhost:5432/mira_dev"
 mvn -f backend\pom.xml spring-boot:run
 ```
 
-Flyway applies V1 at startup and Hibernate validates the resulting schema. To apply the optional development catalog fixture, first sign in through Google OAuth so the application creates a local user, then run the fixture against this database with that user's email:
+Flyway applies V1 and subsequent migrations at startup and Hibernate validates the resulting schema. To apply the optional development catalog fixture, first sign in through Google OAuth so the application creates a local user, then run the fixture against this database with that user's email:
 
 ```powershell
 $seedEmail = Read-Host "Google account email used for local sign-in"
@@ -205,16 +243,23 @@ The fixture explicitly adds 14 net-priced paving, painting, and electrical catal
 
 ### Backend tests
 
-The `test` Spring profile defaults its URL to `jdbc:postgresql://localhost:5432/mira_test`, requires explicit `TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`, and runs Flyway with Hibernate schema validation. Point the test variables at a separate, empty test database; do not point them at the normal development database. The profile never falls back to `mira_dev`.
+The `test` Spring profile connects only to `jdbc:postgresql://localhost:5432/mira_test`
+using the isolated `mira_test_ai_classification_v3` schema, requires explicit
+`TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`, and runs Flyway with Hibernate schema
+validation. It does not use `DATABASE_URL` or fall back to `mira_dev`; the separate schema also
+keeps any older test-schema migration history untouched.
 
 ```powershell
-$env:TEST_DATABASE_URL = "jdbc:postgresql://localhost:5432/mira_test"
 $env:TEST_DATABASE_USERNAME = "<test-only-role>"
 $env:TEST_DATABASE_PASSWORD = "<test-only-password>"
 mvn -f backend\pom.xml '-Dspring.profiles.active=test' test
 ```
 
-The historical V1–V19 migration chain has been replaced by the clean V1. A local database that already applied any historical migration is not compatible with this new chain; Flyway `repair` must not be used to mask that schema mismatch. Rebuilding the normal local database is a separate, deliberate cutover: back it up if useful, stop the application, verify the target database name, and recreate it only with explicit operator approval. This change does not reset or modify that database automatically.
+The current Flyway chain is the consolidated `V1__init_schema.sql` followed by
+`V2__classification_optimization.sql`; a V3 can follow for future changes. Do not edit an
+applied migration, run Flyway `repair` or `clean`, or reset a database to work around a
+validation mismatch. The test profile uses its isolated schema instead of changing an
+existing schema.
 
 ### Manual verification: quote coverage and Gmail confirmation
 

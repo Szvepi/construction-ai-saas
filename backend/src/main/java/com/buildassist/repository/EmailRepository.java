@@ -50,11 +50,12 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
             INSERT INTO emails (
                 gmail_connection_id, gmail_message_id, subject, from_address, body_text,
                 email_received_at, synced_at, is_replied, category, classification_metadata,
-                classification_status, classification_source, classification_retry_at
+                classification_status, classification_source, classification_retry_at,
+                classification_queue_type, classification_origin, classification_queued_at
             ) VALUES (
                 :gmailConnectionId, :gmailMessageId, :subject, :fromAddress, :bodyText,
-                :receivedAt, NOW(), FALSE, :category, :classificationMetadata,
-                'PENDING', 'PENDING', NOW()
+                :receivedAt, NOW(), FALSE, 'UNCLASSIFIED', :classificationMetadata,
+                'PENDING', 'PENDING', NOW(), :queueType, :queueType, NOW()
             )
             ON CONFLICT (gmail_connection_id, gmail_message_id) DO NOTHING
             """, nativeQuery = true)
@@ -65,25 +66,69 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
             @Param("fromAddress") String fromAddress,
             @Param("bodyText") String bodyText,
             @Param("receivedAt") OffsetDateTime receivedAt,
-            @Param("category") String category,
+            @Param("queueType") String queueType,
             @Param("classificationMetadata") String classificationMetadata);
 
     @Query(value = """
-            SELECT * FROM emails
-            WHERE classification_source <> 'MANUAL'
+            SELECT e.* FROM emails e
+            JOIN gmail_connections gc ON gc.id = e.gmail_connection_id
+            LEFT JOIN email_classification_user_daily_budget user_budget
+              ON user_budget.user_id = gc.user_id
+             AND user_budget.budget_date = :budgetDate
+            WHERE e.classification_source <> 'MANUAL'
               AND (
-                    (classification_status IN ('PENDING', 'RETRY')
-                     AND (classification_retry_at IS NULL OR classification_retry_at <= :now))
-                    OR (classification_status = 'PROCESSING'
-                        AND classification_last_attempt_at <= :staleBefore)
+                    (e.classification_status IN ('PENDING', 'RETRY')
+                     AND (e.classification_retry_at IS NULL OR e.classification_retry_at <= :now))
+                    OR (e.classification_status = 'PROCESSING'
+                        AND e.classification_started_at <= :staleBefore)
               )
-            ORDER BY email_received_at ASC, id ASC
+              AND COALESCE(user_budget.attempts, 0) < :maxPerUserPerDay
+            ORDER BY user_budget.last_claimed_at ASC NULLS FIRST,
+                     CASE
+                         WHEN e.classification_queue_type = 'FRESH'
+                              AND e.classification_queued_at >= :freshPriorityBefore THEN 0
+                         WHEN e.classification_queue_type = 'RETRY' THEN 1
+                         ELSE 2
+                     END,
+                     CASE WHEN e.classification_queue_type = 'FRESH'
+                          THEN e.email_received_at END DESC NULLS LAST,
+                     e.classification_queued_at ASC,
+                     e.email_received_at ASC,
+                     e.id ASC
             LIMIT 1
-            FOR UPDATE SKIP LOCKED
+            FOR UPDATE OF e SKIP LOCKED
             """, nativeQuery = true)
     Optional<Email> lockNextClassificationDue(
             @Param("now") Instant now,
-            @Param("staleBefore") Instant staleBefore);
+            @Param("staleBefore") Instant staleBefore,
+            @Param("budgetDate") java.sql.Date budgetDate,
+            @Param("maxPerUserPerDay") int maxPerUserPerDay,
+            @Param("freshPriorityBefore") Instant freshPriorityBefore);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select email from Email email where email.id = :emailId")
+    Optional<Email> findByIdForClassificationUpdate(@Param("emailId") Long emailId);
+
+    @Modifying
+    @Query(value = """
+            INSERT INTO email_classification_user_daily_budget (budget_date, user_id, last_claimed_at)
+            VALUES (:budgetDate, :userId, NOW())
+            ON CONFLICT (budget_date, user_id) DO UPDATE
+            SET last_claimed_at = GREATEST(
+                COALESCE(email_classification_user_daily_budget.last_claimed_at, '-infinity'::timestamptz),
+                NOW()
+            ) + INTERVAL '1 microsecond'
+            """, nativeQuery = true)
+    void touchUserClassificationClaim(
+            @Param("budgetDate") java.sql.Date budgetDate,
+            @Param("userId") Long userId);
+
+    @Query(value = """
+            SELECT COUNT(*)
+            FROM emails
+            WHERE classification_status IN ('PENDING', 'RETRY', 'PROCESSING')
+            """, nativeQuery = true)
+    long countQueuedForClassification();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

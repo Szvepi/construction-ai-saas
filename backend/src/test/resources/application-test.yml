@@ -1,11 +1,18 @@
 spring:
   datasource:
-    url: ${TEST_DATABASE_URL:jdbc:postgresql://localhost:5432/mira_test}
+    url: jdbc:postgresql://localhost:5432/mira_test?currentSchema=mira_test_ai_classification_v3,public
     username: ${TEST_DATABASE_USERNAME}
     password: ${TEST_DATABASE_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: mira_test_ai_classification_v3
+  flyway:
+    schemas: mira_test_ai_classification_v3
+    default-schema: mira_test_ai_classification_v3
+    init-sql: SET search_path TO mira_test_ai_classification_v3, public
 app:
   gmail:
     sync-enabled: false

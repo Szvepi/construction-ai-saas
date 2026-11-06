@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.buildassist.config.AppProperties;
 import java.util.Set;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,9 @@ class DatabaseBootstrapIntegrationTest {
     @Autowired
     private ClientRegistrationRepository clientRegistrations;
 
+    @Autowired
+    private AppProperties appProperties;
+
     @Test
     void normalGoogleLoginAuthorizationRequestUsesOnlyIdentityScopesWithoutConsentPrompts() {
         DefaultOAuth2AuthorizationRequestResolver resolver = new DefaultOAuth2AuthorizationRequestResolver(
@@ -61,14 +65,18 @@ class DatabaseBootstrapIntegrationTest {
     }
 
     @Test
-    void flywayV1CreatesTheCurrentSchemaAndHibernateValidatesIt() {
-        assertEquals(1, jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE", Integer.class));
+    void flywayMigrationsCreateTheCurrentSchemaAndHibernateValidatesIt() {
+        assertEquals(List.of("1", "2"), jdbcTemplate.query(
+                "SELECT version FROM flyway_schema_history "
+                        + "WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank",
+                (resultSet, rowNum) -> resultSet.getString(1)));
         assertTrue(migrationExists("1"));
+        assertTrue(migrationExists("2"));
 
         List<String> expectedTables = List.of(
                 "users", "gmail_connections", "emails", "email_drafts", "company_profiles", "catalog_items",
-                "email_classification_daily_budget");
+                "email_classification_daily_budget", "email_classification_user_daily_budget",
+                "email_classification_ai_attempt");
         for (String table : expectedTables) {
             assertTrue(tableExists(table), "Expected migrated table: " + table);
         }
@@ -80,10 +88,23 @@ class DatabaseBootstrapIntegrationTest {
         assertTrue(columnExists("gmail_connections", "gmail_sync_auth_error_category"));
         assertTrue(columnExists("emails", "classification_status"));
         assertTrue(columnExists("emails", "classification_source"));
+        assertTrue(columnExists("emails", "classification_queue_type"));
+        assertTrue(columnExists("emails", "classification_origin"));
+        assertTrue(columnExists("emails", "classification_rule_id"));
+        assertTrue(columnExists("emails", "classification_active_attempt_id"));
         assertFalse(columnExists("email_drafts", "line_items"));
         assertFalse(columnExists("email_drafts", "unmapped_requests"));
         assertFalse(columnExists("email_drafts", "requested_work_items"));
         assertFalse(columnExists("catalog_items", "calculation_strategy"));
+    }
+
+    @Test
+    void classificationLimitsAreConfiguredOutsideJavaDefaults() {
+        assertEquals(1_000, appProperties.getEmailClassification().getMaxPerDay());
+        assertEquals(150, appProperties.getEmailClassification().getMaxPerUserPerDay());
+        assertEquals(5, appProperties.getEmailClassification().getMaxPerRun());
+        assertEquals("10.00", appProperties.getEmailClassification().getMaxCostUsdPerDay().toPlainString());
+        assertEquals("UTC", appProperties.getEmailClassification().getDailyBudgetTimeZone());
     }
 
     private boolean tableExists(String table) {

@@ -120,7 +120,7 @@ public class GmailBackfillStateStore {
                     email.getFromAddress(),
                     email.getBodyText(),
                     email.getEmailReceivedAt(),
-                    email.getCategory().name(),
+                    "HISTORICAL",
                     email.getClassificationMetadata());
         }
 

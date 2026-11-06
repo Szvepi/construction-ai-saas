@@ -70,4 +70,34 @@ public class Email {
 
     @Column(name = "classification_last_attempt_at")
     private java.time.Instant classificationLastAttemptAt;
+
+    @Column(name = "classification_queue_type", nullable = false, length = 24)
+    private String classificationQueueType = "HISTORICAL";
+
+    @Column(name = "classification_origin", nullable = false, length = 24)
+    private String classificationOrigin = "HISTORICAL";
+
+    @Column(name = "classification_rule_id", length = 64)
+    private String classificationRuleId;
+
+    @Column(name = "classification_queued_at", nullable = false)
+    private java.time.Instant classificationQueuedAt;
+
+    @Column(name = "classification_started_at")
+    private java.time.Instant classificationStartedAt;
+
+    @Column(name = "classification_completed_at")
+    private java.time.Instant classificationCompletedAt;
+
+    @Column(name = "classification_active_attempt_id")
+    private Long classificationActiveAttemptId;
+
+    @PrePersist
+    private void initializeClassificationQueuedAt() {
+        if (classificationQueuedAt == null) {
+            classificationQueuedAt = syncedAt != null
+                    ? syncedAt.toInstant()
+                    : emailReceivedAt != null ? emailReceivedAt.toInstant() : java.time.Instant.now();
+        }
+    }
 }

@@ -9,6 +9,7 @@ const CATEGORY_LABELS: Record<EmailDetail["category"], string> = {
     CLASSIFICATION_REVIEW: "Besorolás ellenőrzése",
     OTHER: "Egyéb",
     SPAM: "Spam",
+    UNCLASSIFIED: "Nincs végleges besorolás",
 };
 
 function formatDate(value: string): string {

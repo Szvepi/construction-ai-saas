@@ -267,7 +267,7 @@ public class GmailHistoryStateStore {
                     email.getFromAddress(),
                     email.getBodyText(),
                     email.getEmailReceivedAt(),
-                    email.getCategory().name(),
+                    "FRESH",
                     email.getClassificationMetadata());
         }
         return importedCount;

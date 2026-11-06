@@ -241,10 +241,14 @@ public class EmailService {
             throw new IllegalStateException("Email does not belong to user's Gmail connection");
         }
 
-        if (newCategory == null || newCategory == EmailCategory.CLASSIFICATION_REVIEW) {
+        if (newCategory == null
+                || newCategory == EmailCategory.CLASSIFICATION_REVIEW
+                || newCategory == EmailCategory.UNCLASSIFIED) {
             throw new IllegalArgumentException("Choose a final email category");
         }
 
+        email = emailRepository.findByIdForClassificationUpdate(emailId)
+                .orElseThrow(() -> new IllegalArgumentException("Email not found: " + emailId));
         email.setCategory(newCategory);
         email.setClassificationSource("MANUAL");
         email.setClassificationStatus("CLASSIFIED");
@@ -252,6 +256,9 @@ public class EmailService {
         email.setClassificationReason("Kézi besorolás");
         email.setClassificationEvidence(null);
         email.setClassificationRetryAt(null);
+        email.setClassificationRuleId(null);
+        email.setClassificationActiveAttemptId(null);
+        email.setClassificationCompletedAt(Instant.now());
         emailRepository.save(email);
 
         return new EmailDtos.UpdateCategoryResponse(email.getId(), email.getCategory());
@@ -288,8 +295,12 @@ public class EmailService {
         Map<String, String> relevantHeaders = new java.util.LinkedHashMap<>();
         for (JsonNode header : headers) {
             String name = header.path("name").asText("");
-            if (List.of("Reply-To", "Auto-Submitted", "Precedence", "List-Id", "List-Unsubscribe",
-                    "In-Reply-To", "References", "Content-Type").stream()
+            if (List.of(
+                    "Reply-To", "Auto-Submitted", "Precedence", "List-Id", "List-Unsubscribe",
+                    "List-Post", "List-Help", "List-Owner", "List-Archive", "In-Reply-To",
+                    "References", "Content-Type", "Return-Path", "X-Autoreply", "X-Autorespond",
+                    "X-Auto-Response-Suppress", "X-Failed-Recipients", "Original-Recipient",
+                    "Final-Recipient", "Action", "Status", "Diagnostic-Code").stream()
                     .anyMatch(allowed -> allowed.equalsIgnoreCase(name))) {
                 relevantHeaders.put(name, header.path("value").asText(""));
             }
@@ -322,8 +333,9 @@ public class EmailService {
         }
 
         for (JsonNode header : headers) {
-            if (headerName.equals(header.get("name").asText())) {
-                return header.get("value").asText();
+            if (headerName.equalsIgnoreCase(header.path("name").asText())) {
+                String value = header.path("value").asText(null);
+                return value == null || value.isBlank() ? null : value;
             }
         }
         return null;

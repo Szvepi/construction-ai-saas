@@ -4,7 +4,7 @@ export type EmailSummary = {
   fromAddress: string;
   receivedAt: string;
   replied: boolean;
-  category: "QUOTE_REQUEST" | "SPAM" | "OTHER" | "CLASSIFICATION_REVIEW";
+  category: "QUOTE_REQUEST" | "SPAM" | "OTHER" | "CLASSIFICATION_REVIEW" | "UNCLASSIFIED";
   draftStatus: "DRAFT" | "PENDING_REVIEW" | "READY" | "SENT" | null;
   classificationStatus: "PENDING" | "RETRY" | "PROCESSING" | "CLASSIFIED" | "REVIEW" | "FAILED" | "LEGACY";
   classificationReason: string | null;

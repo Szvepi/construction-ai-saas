@@ -6,7 +6,7 @@ spring:
       api-key: ${OPENAI_API_KEY}
       chat:
         options:
-          model: gpt-4o-mini
+          model: ${OPENAI_MODEL:gpt-4o-mini}
           # Alacsony hőmérséklet (temperature), mert precíz adatkinyerést várunk, nem kreativitást!
           temperature: 0.2
   datasource:
@@ -80,7 +80,7 @@ app:
     client-id: ${GMAIL_CLIENT_ID:}
     client-secret: ${GMAIL_CLIENT_SECRET:}
     redirect-uri: ${GMAIL_REDIRECT_URI:http://localhost:8080/api/gmail/callback}
-    sync-window-months: ${GMAIL_SYNC_WINDOW_MONTHS:6}
+    sync-window-months: ${GMAIL_SYNC_WINDOW_MONTHS:1}
     quota-project-key: ${GMAIL_QUOTA_PROJECT_KEY:default}
     project-quota-units-per-minute: ${GMAIL_PROJECT_QUOTA_UNITS_PER_MINUTE:1200000}
     user-quota-units-per-minute: ${GMAIL_USER_QUOTA_UNITS_PER_MINUTE:6000}
@@ -102,11 +102,20 @@ app:
     enabled: ${EMAIL_CLASSIFICATION_ENABLED:true}
     version: ${EMAIL_CLASSIFICATION_VERSION:v1}
     max-per-run: ${EMAIL_CLASSIFICATION_MAX_PER_RUN:5}
-    max-per-day: ${EMAIL_CLASSIFICATION_MAX_PER_DAY:100}
+    max-per-day: ${EMAIL_CLASSIFICATION_MAX_PER_DAY:1000}
+    max-per-user-per-day: ${EMAIL_CLASSIFICATION_MAX_PER_USER_PER_DAY:150}
+    max-cost-usd-per-day: ${EMAIL_CLASSIFICATION_MAX_COST_USD_PER_DAY:10.00}
+    input-price-usd-per-million-tokens: ${EMAIL_CLASSIFICATION_INPUT_PRICE_USD_PER_MILLION_TOKENS:0.15}
+    output-price-usd-per-million-tokens: ${EMAIL_CLASSIFICATION_OUTPUT_PRICE_USD_PER_MILLION_TOKENS:0.60}
+    max-input-tokens: ${EMAIL_CLASSIFICATION_MAX_INPUT_TOKENS:4000}
+    max-output-tokens: ${EMAIL_CLASSIFICATION_MAX_OUTPUT_TOKENS:256}
+    daily-budget-time-zone: ${EMAIL_CLASSIFICATION_DAILY_BUDGET_TIME_ZONE:UTC}
+    fresh-priority-minutes: ${EMAIL_CLASSIFICATION_FRESH_PRIORITY_MINUTES:120}
+    metrics-interval-ms: ${EMAIL_CLASSIFICATION_METRICS_INTERVAL_MS:300000}
     max-reclassification-batch: ${EMAIL_CLASSIFICATION_MAX_RECLASSIFICATION_BATCH:100}
     max-attempts: ${EMAIL_CLASSIFICATION_MAX_ATTEMPTS:3}
     retry-base-seconds: ${EMAIL_CLASSIFICATION_RETRY_BASE_SECONDS:300}
+    retry-max-seconds: ${EMAIL_CLASSIFICATION_RETRY_MAX_SECONDS:86400}
     stale-processing-minutes: ${EMAIL_CLASSIFICATION_STALE_PROCESSING_MINUTES:10}
     poll-interval-ms: ${EMAIL_CLASSIFICATION_POLL_INTERVAL_MS:30000}
-    max-body-characters: ${EMAIL_CLASSIFICATION_MAX_BODY_CHARACTERS:12000}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}

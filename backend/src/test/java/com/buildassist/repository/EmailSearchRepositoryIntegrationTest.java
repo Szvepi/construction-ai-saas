@@ -125,6 +125,34 @@ class EmailSearchRepositoryIntegrationTest {
     }
 
     @Test
+    void unclassifiedMessagesAppearInAllResultsButNotInOtherCategoryResults() {
+        Email waiting = saveEmail(
+                ownConnection,
+                "Waiting for classification",
+                "new@example.com",
+                sameReceivedAt.plusMinutes(1),
+                EmailCategory.UNCLASSIFIED);
+        waiting.setClassificationStatus("PENDING");
+        waiting.setClassificationSource("PENDING");
+        emailRepository.saveAndFlush(waiting);
+
+        Page<EmailRepository.SearchRow> all = emailRepository.searchEmailsDescending(
+                ownConnection.getId(), null, null, null, PageRequest.of(0, 25));
+        Page<EmailRepository.SearchRow> other = emailRepository.searchEmailsDescending(
+                ownConnection.getId(), null, "OTHER", null, PageRequest.of(0, 25));
+        Page<EmailRepository.SearchRow> unclassified = emailRepository.searchEmailsDescending(
+                ownConnection.getId(), null, "UNCLASSIFIED", null, PageRequest.of(0, 25));
+
+        assertEquals(6, all.getTotalElements());
+        assertTrue(all.getContent().stream().anyMatch(row -> row.getSubject().equals("Waiting for classification")));
+        assertEquals(1, other.getTotalElements());
+        assertTrue(other.getContent().stream().noneMatch(
+                row -> row.getSubject().equals("Waiting for classification")));
+        assertEquals(1, unclassified.getTotalElements());
+        assertEquals("PENDING", unclassified.getContent().getFirst().getClassificationStatus());
+    }
+
+    @Test
     void paginationAndEqualTimestampOrderingAreStableInBothDirections() {
         Page<EmailRepository.SearchRow> descendingFirstPage = emailRepository.searchEmailsDescending(
                 ownConnection.getId(), null, null, null, PageRequest.of(0, 2));

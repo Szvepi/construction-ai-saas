@@ -3,13 +3,20 @@ package com.buildassist.service;
 import com.buildassist.config.AppProperties;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
+import com.buildassist.model.GmailConnection;
+import com.buildassist.model.User;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.sql.Date;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,7 +28,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -29,9 +35,11 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,28 +57,38 @@ class EmailClassificationServiceTest {
     @Mock
     private EmailClassificationModel model;
     @Mock
+    private EmailClassificationBudgetService budgets;
+    @Mock
     private JdbcTemplate jdbcTemplate;
     @Mock
     private PlatformTransactionManager transactionManager;
 
     private EmailClassificationService service;
+    private AppProperties appProperties;
 
     @BeforeEach
     void setUp() {
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class)))
                 .thenAnswer(invocation -> new SimpleTransactionStatus());
-        AppProperties properties = new AppProperties();
-        properties.getEmailClassification().setEnabled(true);
-        properties.getEmailClassification().setMaxPerRun(1);
-        properties.getEmailClassification().setRetryBaseSeconds(60);
-        properties.getEmailClassification().setMaxAttempts(3);
-        properties.getEmailClassification().setVersion("v22");
+        appProperties = new AppProperties();
+        appProperties.getEmailClassification().setEnabled(true);
+        appProperties.getEmailClassification().setMaxPerRun(1);
+        appProperties.getEmailClassification().setRetryBaseSeconds(60);
+        appProperties.getEmailClassification().setRetryMaxSeconds(86_400);
+        appProperties.getEmailClassification().setMaxAttempts(3);
+        appProperties.getEmailClassification().setVersion("v22");
+        appProperties.getEmailClassification().setMaxPerUserPerDay(150);
+        appProperties.getEmailClassification().setMaxInputTokens(4_000);
+        appProperties.getEmailClassification().setMaxOutputTokens(256);
+        appProperties.getEmailClassification().setMetricsIntervalMs(300_000);
         TaskExecutor directExecutor = Runnable::run;
+        lenient().when(budgets.currentBudgetDate()).thenReturn(LocalDate.now(Clock.fixed(NOW, ZoneOffset.UTC)));
         service = new EmailClassificationService(
                 emails,
                 connections,
                 model,
-                properties,
+                budgets,
+                appProperties,
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 jdbcTemplate,
@@ -83,13 +101,14 @@ class EmailClassificationServiceTest {
     void appliesStructuredAiDecisionsAcrossHungarianEmailCases(
             EmailFixture fixture) throws Exception {
         Email email = queuedEmail(fixture.emailText());
-        when(emails.lockNextClassificationDue(any(), any())).thenReturn(Optional.of(email));
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
-        allowBudget();
-        when(model.classify(anyString())).thenReturn("""
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(new EmailClassificationModel.ClassificationResponse("""
                 {"category":"%s","reason":"A legfrissebb levél tartalma ezt támasztja alá.",
                  "evidence":"%s"}
-                """.formatted(fixture.mockPrediction(), fixture.description()));
+                """.formatted(fixture.mockPrediction(), fixture.description()), null, null));
 
         service.classifyDueEmails();
 
@@ -98,6 +117,56 @@ class EmailClassificationServiceTest {
         assertEquals("v22", email.getClassificationVersion());
         assertEquals(fixture.mockPrediction() == EmailCategory.CLASSIFICATION_REVIEW ? "REVIEW" : "CLASSIFIED",
                 email.getClassificationStatus());
+    }
+
+    @Test
+    void schedulerRunClaimsNoMoreThanTheConfiguredMaximum() {
+        appProperties.getEmailClassification().setMaxPerRun(5);
+        List<Email> batch = java.util.stream.IntStream.range(0, 6)
+        .mapToObj(index -> {
+            Email email = queuedEmail("Új tetőfedési munkára kérek ajánlatot.");
+            email.setId(101L + index);
+            return email;
+        })
+        .toList();
+        Map<Long, Email> emailsById = new HashMap<>();
+        batch.forEach(email -> emailsById.put(email.getId(), email));
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+        .thenReturn(Optional.of(batch.get(0)))
+        .thenReturn(Optional.of(batch.get(1)))
+        .thenReturn(Optional.of(batch.get(2)))
+        .thenReturn(Optional.of(batch.get(3)))
+        .thenReturn(Optional.of(batch.get(4)))
+        .thenReturn(Optional.of(batch.get(5)));
+        when(emails.findByIdForClassificationUpdate(any()))
+        .thenAnswer(invocation -> Optional.of(emailsById.get(invocation.getArgument(0))));
+        doAnswer(invocation -> {
+            Long emailId = invocation.getArgument(0);
+            Email email = emailsById.get(emailId);
+            int attemptNumber = invocation.getArgument(4);
+            EmailClassificationBudgetService.Reservation reservation =
+            new EmailClassificationBudgetService.Reservation(
+                    emailId + 1_000,
+                    Date.valueOf(LocalDate.now(Clock.fixed(NOW, ZoneOffset.UTC))),
+                    1L,
+                    emailId,
+                    attemptNumber,
+                    100,
+                    256,
+                    new BigDecimal("0.000200000"));
+            email.setClassificationAttempts(attemptNumber);
+            email.setClassificationActiveAttemptId(reservation.attemptId());
+            return EmailClassificationBudgetService.ReservationResult.allowed(reservation);
+        }).when(budgets).reserve(any(), any(), anyString(), anyString(),
+        any(Integer.class), any(Integer.class), any(Integer.class));
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.OTHER));
+
+        service.classifyDueEmails();
+
+        verify(emails, org.mockito.Mockito.times(5)).lockNextClassificationDue(
+        any(), any(), any(), any(Integer.class), any());
+        verify(model, org.mockito.Mockito.times(5)).classify(anyString());
+        assertEquals("PENDING", batch.get(5).getClassificationStatus());
     }
 
     @Test
@@ -132,12 +201,47 @@ class EmailClassificationServiceTest {
     }
 
     @Test
+    void noreplySenderWithRealQuoteRequestStillUsesAiClassification() {
+        Email email = queuedEmail("A tető felújítására szeretnék árajánlatot kérni.");
+        email.setFromAddress("no-reply@example.hu");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        verify(model).classify(anyString());
+        assertEquals(EmailCategory.QUOTE_REQUEST, email.getCategory());
+    }
+
+    @Test
+    void webContactFormMessageStillUsesAiClassification() {
+        Email email = queuedEmail("Családi házunk tetőfedésére kérnénk árajánlatot.");
+        email.setFromAddress("noreply@kapcsolat.example.hu");
+        email.setClassificationMetadata("{\"Content-Type\":\"text/plain; charset=UTF-8\"}");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        verify(model).classify(anyString());
+        assertEquals(EmailCategory.QUOTE_REQUEST, email.getCategory());
+    }
+
+    @Test
     void emptyEmailSkipsModelAndRequiresManualClassification() {
         Email email = queuedEmail("");
         email.setSubject(null);
         email.setFromAddress(null);
-        when(emails.lockNextClassificationDue(any(), any())).thenReturn(Optional.of(email));
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
+        email.setClassificationMetadata("{}");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
 
         service.classifyDueEmails();
 
@@ -149,9 +253,10 @@ class EmailClassificationServiceTest {
     @Test
     void modelFailureSchedulesRetryWithoutClassifyingAsQuoteRequest() {
         Email email = queuedEmail("Szeretnék ajánlatot kérni új tetőfedési munkára.");
-        when(emails.lockNextClassificationDue(any(), any())).thenReturn(Optional.of(email));
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
-        allowBudget();
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
         when(model.classify(anyString())).thenThrow(new IllegalStateException("provider unavailable"));
 
         service.classifyDueEmails();
@@ -166,9 +271,10 @@ class EmailClassificationServiceTest {
     void exhaustedRetriesMoveToReviewInsteadOfInventingAQuoteRequest() {
         Email email = queuedEmail("Kérem küldjön ajánlatot.");
         email.setClassificationAttempts(2);
-        when(emails.lockNextClassificationDue(any(), any())).thenReturn(Optional.of(email));
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
-        allowBudget();
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
         when(model.classify(anyString())).thenThrow(new IllegalArgumentException("malformed response"));
 
         service.classifyDueEmails();
@@ -180,30 +286,34 @@ class EmailClassificationServiceTest {
     }
 
     @Test
-    void manualCategoryChangeIsNeverOverwrittenByAiCompletion() {
+    void manualCategoryChangeDuringAiCallIsNeverOverwritten() {
         Email email = queuedEmail("Új munkára kérek ajánlatot.");
-        email.setCategory(EmailCategory.OTHER);
-        email.setClassificationSource("MANUAL");
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenAnswer(invocation -> {
+            email.setCategory(EmailCategory.OTHER);
+            email.setClassificationSource("MANUAL");
+            email.setClassificationStatus("CLASSIFIED");
+            return response(EmailCategory.QUOTE_REQUEST);
+        });
 
-        service.finish(101L, new EmailClassificationService.Decision(
-                EmailCategory.QUOTE_REQUEST, "AI decision", "ajánlatot"));
+        service.classifyDueEmails();
 
         assertEquals(EmailCategory.OTHER, email.getCategory());
         assertEquals("MANUAL", email.getClassificationSource());
-        verify(emails, never()).save(email);
     }
 
     @Test
     void sendsBodyAndAllowlistedMetadataAsModelContext() throws Exception {
         Email email = queuedEmail("Új ereszcsatorna felszerelésére kérek árajánlatot.");
         email.setClassificationMetadata("{\"List-ID\":\"customers\"}");
-        when(emails.lockNextClassificationDue(any(), any())).thenReturn(Optional.of(email));
-        when(emails.findById(101L)).thenReturn(Optional.of(email));
-        allowBudget();
-        when(model.classify(anyString())).thenReturn("""
-                {"category":"QUOTE_REQUEST","reason":"Új munkát kér.","evidence":"kérek árajánlatot"}
-                """);
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
 
         service.classifyDueEmails();
 
@@ -213,14 +323,217 @@ class EmailClassificationServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(context.getValue().contains("customers"));
     }
 
-    private void allowBudget() {
-        doReturn(List.of(1)).when(jdbcTemplate).query(
-                anyString(), any(RowMapper.class), any(Object[].class));
+    @Test
+    void genuineQuoteRequestFromNoReplyAddressStillUsesAi() {
+        Email email = queuedEmail("A tető javítására szeretnék árajánlatot kérni.");
+        email.setFromAddress("no-reply@customer.example");
+        email.setClassificationMetadata("{}");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        verify(model).classify(anyString());
+        assertEquals(EmailCategory.QUOTE_REQUEST, email.getCategory());
+    }
+
+    @Test
+    void websiteContactFormQuoteRequestStillUsesAi() {
+        Email email = queuedEmail("A weboldalon keresztül új kerítés építésére kérek ajánlatot.");
+        email.setFromAddress("forms@example.test");
+        email.setSubject("Website contact form");
+        email.setClassificationMetadata("{\"Content-Type\":\"text/plain\"}");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        verify(model).classify(anyString());
+        assertEquals(EmailCategory.QUOTE_REQUEST, email.getCategory());
+    }
+
+    @Test
+    void newsletterWithMultipleAutomatedHeadersSkipsAi() {
+        Email email = queuedEmail("Havi kedvezményes ajánlataink.");
+        email.setClassificationMetadata("""
+                {"List-Id":"monthly offers","List-Unsubscribe":"<mailto:unsubscribe@example.test>",
+                 "Precedence":"bulk"}
+                """);
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+
+        service.classifyDueEmails();
+
+        verify(model, never()).classify(anyString());
+        assertEquals(EmailCategory.OTHER, email.getCategory());
+        assertEquals("NEWSLETTER_HEADERS_V1", email.getClassificationRuleId());
+        assertEquals("RULE", email.getClassificationSource());
+    }
+
+    @Test
+    void invoiceAndNewWorkRequestTogetherStillUseAi() {
+        Email email = queuedEmail(
+                "Csatoltam az előző munkáról szóló számlát. Emellett új garázs építésére is kérek ajánlatot.");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        verify(model).classify(anyString());
+        assertEquals(EmailCategory.QUOTE_REQUEST, email.getCategory());
+    }
+
+    @Test
+    void exhaustedBudgetDefersEmailWithoutConsumingRetryAttempt() {
+        Email email = queuedEmail("Új munkára kérek ajánlatot.");
+        Instant nextPeriod = NOW.plusSeconds(86_400);
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        when(budgets.reserve(any(), any(), anyString(), anyString(),
+                any(Integer.class), any(Integer.class), any(Integer.class)))
+                .thenReturn(EmailClassificationBudgetService.ReservationResult.denied("GLOBAL_ATTEMPT_LIMIT"));
+        when(budgets.nextBudgetPeriod()).thenReturn(nextPeriod);
+
+        service.classifyDueEmails();
+
+        assertEquals("PENDING", email.getClassificationStatus());
+        assertEquals(nextPeriod, email.getClassificationRetryAt());
+        assertEquals(0, email.getClassificationAttempts());
+        verify(model, never()).classify(anyString());
+    }
+
+    @Test
+    void staleProcessingClaimDefersAsRetryInsteadOfStayingStuckProcessing() {
+        Email email = queuedEmail("Új munkára kérek ajánlatot.");
+        email.setClassificationStatus("PROCESSING");
+        email.setClassificationAttempts(1);
+        email.setClassificationActiveAttemptId(500L);
+        email.setClassificationStartedAt(NOW.minusSeconds(1_200));
+        Instant nextPeriod = NOW.plusSeconds(86_400);
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        when(budgets.reserve(any(), any(), anyString(), anyString(),
+                any(Integer.class), any(Integer.class), any(Integer.class)))
+                .thenReturn(EmailClassificationBudgetService.ReservationResult.denied("GLOBAL_ATTEMPT_LIMIT"));
+        when(budgets.nextBudgetPeriod()).thenReturn(nextPeriod);
+
+        service.classifyDueEmails();
+
+        verify(budgets).markStale(500L);
+        assertEquals("RETRY", email.getClassificationStatus());
+        assertEquals("RETRY", email.getClassificationQueueType());
+        assertEquals(nextPeriod, email.getClassificationRetryAt());
+        assertEquals(1, email.getClassificationAttempts());
+    }
+
+    @Test
+    void recoveredStaleTaskAtRetryLimitMovesToReviewWithoutAnotherAiCall() {
+        Email email = queuedEmail("Új munkára kérek ajánlatot.");
+        email.setClassificationStatus("PROCESSING");
+        email.setClassificationAttempts(3);
+        email.setClassificationActiveAttemptId(500L);
+        email.setClassificationStartedAt(NOW.minusSeconds(1_200));
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+
+        service.classifyDueEmails();
+
+        verify(budgets).markStale(500L);
+        verify(budgets, never()).reserve(
+                any(), any(), anyString(), anyString(),
+                any(Integer.class), any(Integer.class), any(Integer.class));
+        verify(model, never()).classify(anyString());
+        assertEquals(EmailCategory.CLASSIFICATION_REVIEW, email.getCategory());
+        assertEquals("REVIEW", email.getClassificationStatus());
+        assertEquals("ATTEMPTS_EXHAUSTED_REVIEW_V1", email.getClassificationRuleId());
+        assertEquals(3, email.getClassificationAttempts());
+    }
+
+    @Test
+    void modelInputStaysWithinConfiguredTokenLimit() {
+        appProperties.getEmailClassification().setMaxInputTokens(512);
+        Email email = queuedEmail("Új tetőfedési munkára kérek ajánlatot.\n"
+                + "Régi részletek, amelyek nem férnek bele. ".repeat(1_000));
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(response(EmailCategory.QUOTE_REQUEST));
+
+        service.classifyDueEmails();
+
+        org.mockito.ArgumentCaptor<String> context = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(model).classify(context.capture());
+        assertTrue(OpenAiTokenCounter.count(
+                SpringAiEmailClassificationModel.SYSTEM_PROMPT + "\n" + context.getValue()) + 8 <= 512);
+        assertTrue(context.getValue().contains("Új tetőfedési munkára"));
+    }
+
+    @Test
+    void reportedModelUsageIsRecordedWithActualTokenCounts() {
+        Email email = queuedEmail("Új munkára kérek ajánlatot.");
+        when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(Optional.of(email));
+        when(emails.findByIdForClassificationUpdate(101L)).thenReturn(Optional.of(email));
+        allowBudget(email);
+        when(model.classify(anyString())).thenReturn(new EmailClassificationModel.ClassificationResponse(
+                """
+                {"category":"QUOTE_REQUEST","reason":"Új munkát kér.","evidence":"kérek ajánlatot"}
+                """,
+                713,
+                29));
+
+        service.classifyDueEmails();
+
+        verify(budgets).complete(
+                any(EmailClassificationBudgetService.Reservation.class),
+                eq(713),
+                eq(29),
+                eq(true),
+                eq(true),
+                eq(null));
+    }
+
+    private void allowBudget(Email email) {
+        EmailClassificationBudgetService.Reservation reservation =
+                new EmailClassificationBudgetService.Reservation(
+                        501L,
+                        Date.valueOf(LocalDate.now(Clock.fixed(NOW, ZoneOffset.UTC))),
+                        1L,
+                        email.getId(),
+                        email.getClassificationAttempts() + 1,
+                        100,
+                        256,
+                        new BigDecimal("0.000200000"));
+        doAnswer(invocation -> {
+            email.setClassificationAttempts(reservation.attemptNumber());
+            email.setClassificationActiveAttemptId(reservation.attemptId());
+            return EmailClassificationBudgetService.ReservationResult.allowed(reservation);
+        }).when(budgets).reserve(eq(email.getId()), eq(1L), anyString(), anyString(),
+                any(Integer.class), any(Integer.class), any(Integer.class));
     }
 
     private static Email queuedEmail(String body) {
         Email email = new Email();
+        User user = new User();
+        user.setId(1L);
+        GmailConnection connection = new GmailConnection();
+        connection.setUser(user);
         email.setId(101L);
+        email.setGmailConnection(connection);
         email.setSubject("Kivitelezési munka");
         email.setFromAddress("ugyfel@example.hu");
         email.setBodyText(body);
@@ -228,7 +541,15 @@ class EmailClassificationServiceTest {
         email.setClassificationSource("PENDING");
         email.setClassificationRetryAt(NOW);
         email.setClassificationAttempts(0);
+        email.setClassificationQueueType("HISTORICAL");
         return email;
+    }
+
+    private static EmailClassificationModel.ClassificationResponse response(EmailCategory category) {
+        return new EmailClassificationModel.ClassificationResponse(
+                """
+                {"category":"%s","reason":"Új munkát kér.","evidence":"kérek árajánlatot"}
+                """.formatted(category), null, null);
     }
 
     static Stream<org.junit.jupiter.params.provider.Arguments> representativeHungarianEmails() {
