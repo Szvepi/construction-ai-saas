@@ -37,13 +37,26 @@ CREATE TABLE gmail_connections
     history_sync_message_offset     INTEGER      NOT NULL DEFAULT 0,
     history_sync_lock_id            UUID,
     history_sync_lock_until         TIMESTAMPTZ,
+    gmail_sync_retry_at             TIMESTAMPTZ,
+    gmail_sync_retry_attempts       INTEGER      NOT NULL DEFAULT 0,
+    gmail_sync_retry_exhausted      BOOLEAN      NOT NULL DEFAULT FALSE,
+    gmail_sync_auth_required        BOOLEAN      NOT NULL DEFAULT FALSE,
+    gmail_sync_auth_error_category  VARCHAR(64),
+    gmail_sync_auth_required_at     TIMESTAMPTZ,
     CONSTRAINT gmail_connections_backfill_policy_months_check
         CHECK (backfill_policy_months IS NULL OR backfill_policy_months > 0),
     CONSTRAINT gmail_connections_history_policy_months_check
         CHECK (history_sync_policy_months IS NULL OR history_sync_policy_months > 0),
     CONSTRAINT gmail_connections_history_message_offset_check
-        CHECK (history_sync_message_offset >= 0)
+        CHECK (history_sync_message_offset >= 0),
+    CONSTRAINT gmail_connections_sync_retry_attempts_check
+        CHECK (gmail_sync_retry_attempts >= 0)
 );
+
+UPDATE gmail_connections
+SET gmail_sync_auth_error_category = 'UNKNOWN',
+    gmail_sync_auth_required_at = NOW()
+WHERE gmail_sync_auth_required = TRUE;
 
 CREATE TABLE emails
 (
@@ -57,8 +70,23 @@ CREATE TABLE emails
     synced_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     is_replied          BOOLEAN      NOT NULL DEFAULT FALSE,
     category            VARCHAR(50)  NOT NULL DEFAULT 'OTHER',
+    classification_metadata TEXT,
+    classification_status VARCHAR(20) NOT NULL DEFAULT 'LEGACY',
+    classification_source VARCHAR(20) NOT NULL DEFAULT 'LEGACY',
+    classification_version VARCHAR(32),
+    classification_reason VARCHAR(500),
+    classification_evidence VARCHAR(500),
+    classification_attempts INTEGER NOT NULL DEFAULT 0,
+    classification_retry_at TIMESTAMPTZ,
+    classification_last_attempt_at TIMESTAMPTZ,
     CONSTRAINT emails_connection_message_unique UNIQUE (gmail_connection_id, gmail_message_id),
-    CONSTRAINT emails_category_check CHECK (category IN ('QUOTE_REQUEST', 'SPAM', 'OTHER'))
+    CONSTRAINT emails_category_check
+        CHECK (category IN ('QUOTE_REQUEST', 'SPAM', 'OTHER', 'CLASSIFICATION_REVIEW')),
+    CONSTRAINT emails_classification_status_check
+        CHECK (classification_status IN ('PENDING', 'RETRY', 'PROCESSING', 'CLASSIFIED', 'REVIEW', 'FAILED', 'LEGACY')),
+    CONSTRAINT emails_classification_source_check
+        CHECK (classification_source IN ('PENDING', 'AI', 'MANUAL', 'LEGACY')),
+    CONSTRAINT emails_classification_attempts_check CHECK (classification_attempts >= 0)
 );
 
 CREATE TABLE email_drafts
@@ -150,8 +178,13 @@ CREATE TABLE catalog_items
 CREATE INDEX idx_emails_gmail_connection ON emails (gmail_connection_id);
 CREATE INDEX idx_emails_email_received_at ON emails (email_received_at DESC);
 CREATE INDEX idx_emails_category ON emails (category);
+CREATE INDEX idx_gmail_connections_sync_retry
+    ON gmail_connections (gmail_sync_retry_at)
+    WHERE gmail_sync_retry_at IS NOT NULL;
 CREATE INDEX idx_email_drafts_email_id ON email_drafts (email_id);
 CREATE INDEX idx_catalog_items_user_id ON catalog_items (user_id);
+CREATE INDEX idx_emails_classification_due
+    ON emails (classification_status, classification_retry_at, email_received_at, id);
 CREATE INDEX idx_emails_connection_received_id
     ON emails (gmail_connection_id, email_received_at DESC, id DESC);
 CREATE INDEX idx_emails_connection_category_received_id
@@ -160,3 +193,9 @@ CREATE INDEX idx_email_drafts_email_created_id
     ON email_drafts (email_id, created_at DESC, id DESC);
 CREATE INDEX idx_emails_subject_trgm ON emails USING GIN (LOWER(subject) gin_trgm_ops);
 CREATE INDEX idx_emails_from_address_trgm ON emails USING GIN (LOWER(from_address) gin_trgm_ops);
+
+CREATE TABLE email_classification_daily_budget
+(
+    budget_date DATE PRIMARY KEY,
+    attempts    INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0)
+);

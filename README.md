@@ -176,7 +176,9 @@ The quote analysis response includes `coverageItems`, `coverageWarnings`, and `a
 
 The current schema is created by the single `backend/src/main/resources/db/migration/V1__init_schema.sql` Flyway migration. Hibernate uses `ddl-auto: validate`; schema creation and updates are owned by Flyway, not by Hibernate.
 
-The consolidated V1 creates `users`, `gmail_connections`, `emails`, `email_drafts`, `company_profiles`, and `catalog_items`, including Gmail backfill/history state, company tax/VAT settings, catalog pricing and calculation configuration, and the snapshot-backed draft, coverage, fingerprint, and optimistic-version fields. `email_drafts.quote_snapshot` is the sole quote-line/work representation. The old `line_items`, `unmapped_requests`, `requested_work_items`, and `catalog_items.calculation_strategy` columns are not part of this schema.
+The consolidated V1 creates `users`, `gmail_connections`, `emails`, `email_drafts`, `company_profiles`, `catalog_items`, and `email_classification_daily_budget`. It includes Gmail backfill/history/retry state, email classification state, company tax/VAT settings, catalog pricing and calculation configuration, and the snapshot-backed draft, coverage, fingerprint, and optimistic-version fields. `email_drafts.quote_snapshot` is the sole quote-line/work representation. The old `line_items`, `unmapped_requests`, `requested_work_items`, and `catalog_items.calculation_strategy` columns are not part of this schema.
+
+This consolidated migration is for a fresh database. Any database already migrated by the previous V1/V20/V21/V22 files must be recreated before starting the application: V20–V22 are now folded into V1, whose checksum and schema have changed.
 
 ### Create a clean local database
 

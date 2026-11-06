@@ -62,15 +62,13 @@ class DatabaseBootstrapIntegrationTest {
 
     @Test
     void flywayV1CreatesTheCurrentSchemaAndHibernateValidatesIt() {
-        assertEquals(4, jdbcTemplate.queryForObject(
+        assertEquals(1, jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE", Integer.class));
         assertTrue(migrationExists("1"));
-        assertTrue(migrationExists("20"));
-        assertTrue(migrationExists("21"));
-        assertTrue(migrationExists("22"));
 
         List<String> expectedTables = List.of(
-                "users", "gmail_connections", "emails", "email_drafts", "company_profiles", "catalog_items");
+                "users", "gmail_connections", "emails", "email_drafts", "company_profiles", "catalog_items",
+                "email_classification_daily_budget");
         for (String table : expectedTables) {
             assertTrue(tableExists(table), "Expected migrated table: " + table);
         }
@@ -78,6 +76,10 @@ class DatabaseBootstrapIntegrationTest {
         assertTrue(columnExists("email_drafts", "quote_snapshot"));
         assertTrue(columnExists("email_drafts", "draft_version"));
         assertTrue(columnExists("catalog_items", "calculation_config"));
+        assertTrue(columnExists("gmail_connections", "gmail_sync_retry_at"));
+        assertTrue(columnExists("gmail_connections", "gmail_sync_auth_error_category"));
+        assertTrue(columnExists("emails", "classification_status"));
+        assertTrue(columnExists("emails", "classification_source"));
         assertFalse(columnExists("email_drafts", "line_items"));
         assertFalse(columnExists("email_drafts", "unmapped_requests"));
         assertFalse(columnExists("email_drafts", "requested_work_items"));
