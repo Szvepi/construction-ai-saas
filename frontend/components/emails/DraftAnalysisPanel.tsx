@@ -1,8 +1,9 @@
 import {useEffect, useState} from "react";
+import Link from "next/link";
 import {apiFetch} from "@/lib/api";
 import type {
     CatalogItem, CoverageStatus, CoverageWarning, CoverageWorkItem, DraftLineItem, DraftQuoteSnapshot,
-    WorkMappingPreviewResponse,
+    QuoteSetupStatus, WorkMappingPreviewResponse,
 } from "@/lib/types";
 import {Button} from "@/components/ui/Button";
 
@@ -20,6 +21,8 @@ type Props = {
     catalogItems: CatalogItem[];
     busy: boolean;
     analysisFresh: boolean;
+    quoteSetupStatus: QuoteSetupStatus | null;
+    quoteSetupError: string | null;
     onAnalyze: () => void;
     onClientNameChange: (value: string) => void;
     onAdditionalNotesChange: (value: string) => void;
@@ -192,6 +195,8 @@ export function DraftAnalysisPanel({
                                        catalogItems,
                                        busy,
                                        analysisFresh,
+                                       quoteSetupStatus,
+                                       quoteSetupError,
                                        onAnalyze,
                                        onClientNameChange,
                                        onAdditionalNotesChange,
@@ -203,6 +208,11 @@ export function DraftAnalysisPanel({
     const notesId = `additional-notes-${emailId}`;
     const includeNotesId = `include-additional-notes-${emailId}`;
     const clientNameId = `client-name-${emailId}`;
+    const setupReady = quoteSetupStatus?.quoteGenerationEnabled === true;
+    const showCompanySetupLink = Boolean(quoteSetupError)
+        || quoteSetupStatus?.missingRequirements.includes("COMPANY_PROFILE") === true;
+    const showCatalogSetupLink = Boolean(quoteSetupError)
+        || quoteSetupStatus?.missingRequirements.includes("CATALOG") === true;
 
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
@@ -216,10 +226,40 @@ export function DraftAnalysisPanel({
                         Mira a levél és az árjegyzék alapján javasol tételeket.
                     </p>
                 </div>
-                <Button onClick={onAnalyze} disabled={busy}>
+                <Button onClick={onAnalyze} disabled={busy || !setupReady}>
                     {busy ? "Elemzés folyamatban…" : draftId ? "Újraelemzés" : "AI-elemzés indítása"}
                 </Button>
             </div>
+
+            {!setupReady && (
+                <div role={quoteSetupError ? "alert" : "status"}
+                     className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p>
+                        {quoteSetupError
+                            ? `A beállítások ellenőrzése nem sikerült: ${quoteSetupError}`
+                            : quoteSetupStatus
+                                ? "AI-ajánlat csak hiánytalan céges adatokkal és használható árjegyzékkel készíthető."
+                                : "Az ajánlatkészítési beállítások ellenőrzése folyamatban…"}
+                    </p>
+                    {showCompanySetupLink && (
+                        <Link className="mt-2 inline-block font-semibold underline underline-offset-2"
+                              href="/dashboard/settings/company">
+                            Céges adatok kitöltése
+                        </Link>
+                    )}
+                    {showCatalogSetupLink && (
+                        <Link className="mt-2 inline-block font-semibold underline underline-offset-2"
+                              href="/dashboard/settings/catalog">
+                            Használható árjegyzék létrehozása
+                        </Link>
+                    )}
+                    {quoteSetupError && (
+                        <p className="mt-1 text-xs">
+                            Az új AI-elemzés a beállítás ellenőrzéséig nem indítható. A mentett piszkozat továbbra is megtekinthető és szerkeszthető.
+                        </p>
+                    )}
+                </div>
+            )}
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">

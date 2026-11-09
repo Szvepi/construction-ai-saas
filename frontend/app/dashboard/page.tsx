@@ -5,7 +5,7 @@ import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
-import type {CatalogItem, CompanyProfile, EmailSummary, GmailStatus} from "@/lib/types";
+import type {EmailSummary, GmailStatus, QuoteSetupStatus} from "@/lib/types";
 import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {Button} from "@/components/ui/Button";
 
@@ -23,8 +23,7 @@ export default function DashboardPage() {
     const started = useRef(false);
     const [emails, setEmails] = useState<EmailSummary[]>([]);
     const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
-    const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-    const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+    const [quoteSetup, setQuoteSetup] = useState<QuoteSetupStatus | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -36,15 +35,13 @@ export default function DashboardPage() {
     const loadDashboard = useCallback(async () => {
         setError(null);
         try {
-            const [status, profile, catalog, syncedEmails] = await Promise.all([
+            const [status, setup, syncedEmails] = await Promise.all([
                 apiFetch<GmailStatus>("/api/gmail/status"),
-                apiFetch<CompanyProfile>("/api/company-settings"),
-                apiFetch<CatalogItem[]>("/api/catalog"),
+                apiFetch<QuoteSetupStatus>("/api/quote-setup"),
                 apiFetch<EmailSummary[]>("/api/emails"),
             ]);
             setGmailStatus(status);
-            setCompanyProfile(profile);
-            setCatalogItems(catalog);
+            setQuoteSetup(setup);
             setEmails(syncedEmails);
             setLoading(false);
 
@@ -133,16 +130,13 @@ export default function DashboardPage() {
         )
         .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt))
         .slice(0, 5);
-    const hasCompanyProfile = Boolean(
-        companyProfile?.companyName &&
-        companyProfile.legalForm &&
-        companyProfile.taxNumber &&
-        companyProfile.postalCode &&
-        companyProfile.city &&
-        companyProfile.streetName &&
-        companyProfile.streetType &&
-        companyProfile.houseNumber,
-    );
+    const hasCompanyProfile = quoteSetup?.companyProfileComplete ?? false;
+    const catalogReady = quoteSetup?.catalogReady ?? false;
+    const setupHref = !hasCompanyProfile
+        ? "/dashboard/settings/company"
+        : !catalogReady
+            ? "/dashboard/settings/catalog"
+            : "/dashboard/emails?category=QUOTE_REQUEST";
 
     return (
         <DashboardLayout>
@@ -364,14 +358,22 @@ export default function DashboardPage() {
                                         <SetupStatus
                                             label="Céges adatok"
                                             ready={hasCompanyProfile}
-                                            detail={hasCompanyProfile ? companyProfile?.companyName ?? "" : "Hiányos beállítás"}
+                                            detail={hasCompanyProfile ? "Az ajánlathoz szükséges adatok rendben" : "Töltsd ki a kötelező cég- és adózási adatokat"}
                                             href="/dashboard/settings/company"
                                         />
                                         <SetupStatus
                                             label="Árjegyzék"
-                                            ready={catalogItems.length > 0}
-                                            detail={catalogItems.length > 0 ? `${catalogItems.length} tétel` : "Még nincs felvett tétel"}
+                                            ready={catalogReady}
+                                            detail={catalogReady ? "Van használható, pozitív árú katalógustétel" : "Legalább egy érvényes, pozitív árú tétel szükséges"}
                                             href="/dashboard/settings/catalog"
+                                        />
+                                        <SetupStatus
+                                            label="AI-ajánlat készítése"
+                                            ready={quoteSetup?.quoteGenerationEnabled ?? false}
+                                            detail={quoteSetup?.quoteGenerationEnabled
+                                                ? "A beállítások készen állnak"
+                                                : "A hiányzó lépések elvégzése után elérhető"}
+                                            href={setupHref}
                                         />
                                     </div>
                                 </div>

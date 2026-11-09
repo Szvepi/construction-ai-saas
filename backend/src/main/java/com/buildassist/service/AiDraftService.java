@@ -78,6 +78,7 @@ public class AiDraftService {
     private final AiQuoteSnapshotBuilder snapshotBuilder;
     private final DraftQuoteSnapshotService snapshotService;
     private final DraftQuotePricingService pricingService;
+    private final QuoteSetupValidationService quoteSetupValidationService;
     private final DraftQuoteLineEditor lineEditor = new DraftQuoteLineEditor();
 
     public AiDraftService(
@@ -96,6 +97,7 @@ public class AiDraftService {
             AiQuoteSnapshotBuilder snapshotBuilder,
             DraftQuoteSnapshotService snapshotService,
             DraftQuotePricingService pricingService,
+            QuoteSetupValidationService quoteSetupValidationService,
             GmailApiClient gmailApiClient) {
         this.emailRepository = emailRepository;
         this.catalogItemRepository = catalogItemRepository;
@@ -113,6 +115,7 @@ public class AiDraftService {
         this.snapshotBuilder = snapshotBuilder;
         this.snapshotService = snapshotService;
         this.pricingService = pricingService;
+        this.quoteSetupValidationService = quoteSetupValidationService;
     }
 
     @Transactional
@@ -141,9 +144,9 @@ public class AiDraftService {
 
     @Transactional
     public DraftDtos.AnalysisResponse analyzeEmail(Long emailId, Long userId, String additionalNotes) {
+        List<CatalogItem> catalogItems = quoteSetupValidationService.requireReady(userId);
         Email email = emailRepository.findByIdAndGmailConnectionUserId(emailId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Email not found or access denied"));
-        List<CatalogItem> catalogItems = catalogItemRepository.findAllByUserId(userId);
         String normalizedNotes = normalizeOptional(additionalNotes);
         var extraction = aiQuoteExtractionService.extract(email, catalogItems, normalizedNotes);
         AiQuoteSnapshotBuilder.BuildResult build = snapshotBuilder.build(
@@ -222,10 +225,7 @@ public class AiDraftService {
                 .filter(item -> item.workId().equals(request.workId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("A kiválasztott munkafázis nem található."));
-        CatalogItem catalog = catalogItemRepository.findAllByUserId(userId).stream()
-                .filter(item -> request.catalogItemId().equals(item.getId()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("A katalógustétel nem található."));
+        CatalogItem catalog = findTenantCatalogItem(userId, request.catalogItemId());
         CatalogCalculationConfig config = readCatalogConfig(catalog);
         Quantity measured = new Quantity(request.quantity(), QuantityUnit.fromCode(request.unit()));
         Quantity required = measured.convertTo(QuantityUnit.fromCode(catalog.getUnit()));
@@ -517,7 +517,8 @@ public class AiDraftService {
 
     private CatalogItem findTenantCatalogItem(Long userId, Long catalogItemId) {
         return catalogItemRepository.findAllByUserId(userId).stream()
-                .filter(item -> catalogItemId.equals(item.getId()))
+                .filter(item -> catalogItemId.equals(item.getId())
+                        && quoteSetupValidationService.isUsableCatalogItem(userId, item))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("A katalógustétel nem található."));
     }

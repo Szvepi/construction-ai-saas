@@ -1,6 +1,7 @@
 package com.buildassist.controller;
 
 import com.buildassist.service.GmailBackfillException;
+import com.buildassist.service.QuoteSetupIncompleteException;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -40,6 +41,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleGmailBackfill(GmailBackfillException ex) {
         return ResponseEntity.status(ex.getStatus())
                 .body(Map.of("error", ex.getMessage(), "code", ex.getCode()));
+    }
+
+    @ExceptionHandler(QuoteSetupIncompleteException.class)
+    public ResponseEntity<Map<String, Object>> handleQuoteSetupIncomplete(
+            QuoteSetupIncompleteException ex) {
+        return ResponseEntity.unprocessableEntity().body(Map.of(
+                "error", ex.getMessage(),
+                "code", "QUOTE_SETUP_INCOMPLETE",
+                "missingRequirements", ex.getMissingRequirements()));
     }
 
     @ExceptionHandler(Exception.class)

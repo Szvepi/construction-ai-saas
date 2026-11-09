@@ -29,6 +29,13 @@ export type GmailStatus = {
   reconnectRequired: boolean;
 };
 
+export type QuoteSetupStatus = {
+  companyProfileComplete: boolean;
+  catalogReady: boolean;
+  quoteGenerationEnabled: boolean;
+  missingRequirements: ("COMPANY_PROFILE" | "CATALOG")[];
+};
+
 export type CalculationStatus = "VALID" | "NEEDS_INPUT" | "NEEDS_REVIEW" | "INVALID";
 export type WorkRecognitionStatus = "MAPPED" | "PARTIALLY_MAPPED" | "UNMAPPED" | "NEEDS_REVIEW";
 export type CalculationInputSource =

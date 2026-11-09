@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect, useMemo, useState} from "react";
+import {useRouter} from "next/navigation";
 import {ApiError, apiFetch, apiFetchBlob} from "@/lib/api";
 import type {
     AnalysisResponse,
@@ -12,7 +13,8 @@ import type {
     DraftLineItem,
     DraftQuoteSnapshot,
     EmailDetail,
-    GenerateDraftResponse
+    GenerateDraftResponse,
+    QuoteSetupStatus,
 } from "@/lib/types";
 import {type DraftAction, DraftActions} from "@/components/emails/DraftActions";
 import {DraftAnalysisPanel} from "@/components/emails/DraftAnalysisPanel";
@@ -43,6 +45,7 @@ function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLin
 }
 
 export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewChange}: Props) {
+    const router = useRouter();
     const [draftId, setDraftId] = useState<number | null>(null);
     const [clientName, setClientName] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
@@ -73,6 +76,35 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const [previewGenerated, setPreviewGenerated] = useState(false);
     const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+    const [quoteSetupStatus, setQuoteSetupStatus] = useState<QuoteSetupStatus | null>(null);
+    const [quoteSetupError, setQuoteSetupError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        const loadQuoteSetup = async () => {
+            setQuoteSetupStatus(null);
+            setQuoteSetupError(null);
+            try {
+                const status = await apiFetch<QuoteSetupStatus>("/api/quote-setup");
+                if (active) setQuoteSetupStatus(status);
+            } catch (err) {
+                if (!active) return;
+                if (err instanceof ApiError && err.status === 401) {
+                    router.push("/auth/login");
+                    return;
+                }
+                setQuoteSetupError(err instanceof ApiError
+                    ? err.message
+                    : "Az ajánlatkészítési beállítások ellenőrzése sikertelen.");
+            }
+        };
+        void loadQuoteSetup();
+        window.addEventListener("focus", loadQuoteSetup);
+        return () => {
+            active = false;
+            window.removeEventListener("focus", loadQuoteSetup);
+        };
+    }, [router]);
 
     const currentSnapshot = useMemo(() => snapshot({
         clientName,
@@ -94,7 +126,8 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         }
         apiFetch<CatalogItem[]>("/api/catalog")
             .then((items) => {
-                if (active) setCatalogItems(items);
+                if (active) setCatalogItems(items.filter((item) =>
+                    item.name.trim() !== "" && item.netSellingUnitPrice > 0));
             })
             .catch((err) => {
                 if (active) setError(err instanceof ApiError ? err.message : "A katalógus betöltése sikertelen.");
@@ -693,6 +726,8 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 catalogItems={catalogItems}
                 onAddCatalogLine={addCatalogLine}
                 analysisFresh={analysisFresh}
+                quoteSetupStatus={quoteSetupStatus}
+                quoteSetupError={quoteSetupError}
                 busy={busyAction !== null}
                 onAnalyze={analyze}
                 onClientNameChange={(value) => {

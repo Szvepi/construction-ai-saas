@@ -3,6 +3,7 @@ package com.buildassist;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
@@ -30,6 +31,7 @@ class ClassificationMigrationIntegrationTest {
                 System.getenv("TEST_DATABASE_USERNAME"),
                 System.getenv("TEST_DATABASE_PASSWORD"));
         JdbcTemplate jdbc = new JdbcTemplate(migrationDataSource);
+        assertEquals("mira_test", jdbc.queryForObject("SELECT current_database()", String.class));
         jdbc.execute("CREATE SCHEMA " + schema);
         try {
             Flyway.configure()
@@ -41,6 +43,10 @@ class ClassificationMigrationIntegrationTest {
                     .target(MigrationVersion.fromVersion("1"))
                     .load()
                     .migrate();
+            assertEquals(List.of("1"), jdbc.query(
+                    "SELECT version FROM " + schema
+                            + ".flyway_schema_history WHERE success = TRUE ORDER BY installed_rank",
+                    (resultSet, rowNum) -> resultSet.getString(1)));
 
             Long userId = jdbc.queryForObject("""
                     INSERT INTO %s.users (email, password_hash, is_active)
@@ -70,6 +76,10 @@ class ClassificationMigrationIntegrationTest {
                     .load()
                     .migrate();
 
+            assertEquals(List.of("1", "2"), jdbc.query(
+                    "SELECT version FROM " + schema
+                            + ".flyway_schema_history WHERE success = TRUE ORDER BY installed_rank",
+                    (resultSet, rowNum) -> resultSet.getString(1)));
             assertEquals("UNCLASSIFIED", jdbc.queryForObject("""
                     SELECT category FROM %s.emails WHERE gmail_message_id = 'pending-before-v2'
                     """.formatted(schema), String.class));

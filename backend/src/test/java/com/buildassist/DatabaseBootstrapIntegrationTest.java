@@ -66,6 +66,9 @@ class DatabaseBootstrapIntegrationTest {
 
     @Test
     void flywayMigrationsCreateTheCurrentSchemaAndHibernateValidatesIt() {
+        assertEquals("mira_test", jdbcTemplate.queryForObject("SELECT current_database()", String.class));
+        assertEquals("mira_test_ai_classification_v3",
+                jdbcTemplate.queryForObject("SELECT current_schema()", String.class));
         assertEquals(List.of("1", "2"), jdbcTemplate.query(
                 "SELECT version FROM flyway_schema_history "
                         + "WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank",

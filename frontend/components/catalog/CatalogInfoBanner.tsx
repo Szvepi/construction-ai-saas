@@ -1,98 +1,56 @@
 "use client";
 
-import {useEffect, useState} from "react";
-import {getToken} from "@/lib/auth";
-
-const STORAGE_KEY_PREFIX = "mira-catalog-info-dismissed";
-
-function getStorageKey(): string | null {
-    const token = getToken();
-    const payloadSegment = token?.split(".")[1];
-    if (!payloadSegment) {
-        return null;
-    }
-
-    try {
-        const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
-        const payload = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="))) as {
-            sub?: unknown;
-        };
-        const userId = payload.sub;
-        if ((typeof userId !== "string" && typeof userId !== "number") || !userId) {
-            throw new Error("The authentication token does not contain a user ID.");
-        }
-
-        return `${STORAGE_KEY_PREFIX}:${userId}`;
-    } catch (error) {
-        console.error("Unable to determine the catalog banner storage key.", error);
-        return null;
-    }
-}
+import {InfoIcon} from "@/components/ui/InfoIcon";
 
 export function CatalogInfoBanner() {
-    const [storageKey, setStorageKey] = useState<string | null>(null);
-    const [isVisible, setIsVisible] = useState(false);
-    const [isReady, setIsReady] = useState(false);
-
-    useEffect(() => {
-        const key = getStorageKey();
-        setStorageKey(key);
-
-        if (!key) {
-            setIsVisible(true);
-            setIsReady(true);
-            return;
-        }
-
-        try {
-            setIsVisible(window.localStorage.getItem(key) !== "dismissed");
-        } catch (error) {
-            console.error("Unable to read the catalog banner dismissal state.", error);
-            setIsVisible(true);
-        } finally {
-            setIsReady(true);
-        }
-    }, []);
-
-    const dismiss = () => {
-        if (storageKey) {
-            try {
-                window.localStorage.setItem(storageKey, "dismissed");
-            } catch (error) {
-                console.error("Unable to save the catalog banner dismissal state.", error);
-            }
-        }
-        setIsVisible(false);
-    };
-
-    if (!isReady || !isVisible) {
-        return null;
-    }
-
     return (
-        <section
-            aria-labelledby="catalog-info-title"
-            className="relative rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 pr-12 text-slate-700 shadow-sm"
+        <details
+            open
+            className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white text-slate-700 shadow-sm"
         >
-            <button
-                type="button"
-                onClick={dismiss}
-                aria-label="Tájékoztató bezárása"
-                className="absolute right-3 top-3 rounded-md p-1 text-slate-500 transition hover:bg-blue-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-                <span aria-hidden="true" className="text-xl leading-none">×</span>
-            </button>
-            <h2 id="catalog-info-title" className="text-lg font-semibold text-slate-900">
-                💡 Hogyan működik a MIRA Katalógus?
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-                A MIRA ebből az árjegyzékből veszi az ajánlati egységárakat és a költségadatokat.
-            </p>
-            <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-700">
-                <li>Válaszd ki, hogy az adott tétel anyag, munkadíj, kombinált vagy egyéb díj.</li>
-                <li>A nettó eladási egységárat add meg; a beszerzési és saját munkaköltség csak belső költségadat.</li>
-                <li>A kalkulációs beállításokat a MIRA kezeli, nem kell képleteket megadnod.</li>
-            </ol>
-        </section>
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 marker:hidden sm:px-5">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                    <InfoIcon className="h-5 w-5 text-xs text-blue-600"/>
+                </span>
+                <span className="flex-1 text-base font-semibold text-slate-900">
+                    Mire szolgál az árjegyzék?
+                </span>
+                <span aria-hidden="true" className="text-sm text-slate-500">
+                    Részletek
+                </span>
+                <span aria-hidden="true" className="text-slate-500">
+                    ⌄
+                </span>
+            </summary>
+            <div className="border-t border-blue-100 px-4 py-4 sm:px-5">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_minmax(12rem,0.9fr)] lg:items-center">
+                    <div className="space-y-1 text-sm text-slate-700">
+                        <p>
+                            Itt adhatod meg, milyen munkákat végzel, milyen anyagokat használsz, és mennyit számolsz fel értük az ügyfeleidnek.
+                        </p>
+                        <p className="font-medium text-slate-900">
+                            A MIRA ezeket az árakat használja az AI-val készített árajánlatokhoz.
+                        </p>
+                    </div>
+                    <ol className="space-y-2 text-sm text-slate-700">
+                        <li className="flex gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700">1</span>
+                            <span>Válaszd ki, hogy az adott tétel anyag, munkadíj, anyagot és munkadíjat tartalmazó szolgáltatás vagy egyéb díj.</span>
+                        </li>
+                        <li className="flex gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700">2</span>
+                            <span>Add meg a nettó eladási egységárat, amelyet az ügyfélnek számolsz fel.</span>
+                        </li>
+                        <li className="flex gap-2">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700">3</span>
+                            <span>A MIRA a megfelelő mennyiségekkel számolja az ajánlatot. Ha nincs megfelelő ár, azt jelzi, nem talál ki helyetted összeget.</span>
+                        </li>
+                    </ol>
+                    <p className="border-t border-blue-100 pt-3 text-sm text-slate-600 lg:border-l lg:border-t-0 lg:py-2 lg:pl-4">
+                        A belső költségek opcionálisak, csak a saját költségeid és árrésed követésére szolgálnak.
+                    </p>
+                </div>
+            </div>
+        </details>
     );
 }

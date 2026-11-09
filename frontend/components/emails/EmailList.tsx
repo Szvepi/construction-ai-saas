@@ -5,6 +5,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {MouseEvent} from "react";
 import {useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
+import {getSenderInitial} from "@/lib/email";
 import type {EmailSearchResponse, EmailSummary} from "@/lib/types";
 
 type Props = {
@@ -360,7 +361,7 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                                     <li key={email.id} className="relative">
                                         <div className="flex min-w-0 items-center gap-3 px-4 py-4 transition hover:bg-slate-50/80 sm:gap-4 sm:px-6">
                                             <div className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-700 sm:flex">
-                                                {(email.fromAddress || "?").trim().charAt(0).toUpperCase()}
+                                                {getSenderInitial(email.fromAddress)}
                                             </div>
                                             <Link href={`/emails/${email.id}`} className="min-w-0 flex-1">
                                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">

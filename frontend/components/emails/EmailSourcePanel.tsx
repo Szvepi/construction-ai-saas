@@ -1,4 +1,5 @@
 import type {EmailDetail} from "@/lib/types";
+import {getSenderInitial} from "@/lib/email";
 
 type Props = {
     email: EmailDetail;
@@ -41,7 +42,7 @@ export function EmailSourcePanel({email}: Props) {
                 </h1>
                 <div className="mt-4 flex min-w-0 items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-bold text-brand-700">
-                        {(email.fromAddress || "?").trim().charAt(0).toLocaleUpperCase("hu-HU")}
+                        {getSenderInitial(email.fromAddress)}
                     </div>
                     <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900">

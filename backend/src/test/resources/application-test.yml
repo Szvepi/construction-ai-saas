@@ -3,6 +3,13 @@ spring:
     url: jdbc:postgresql://localhost:5432/mira_test?currentSchema=mira_test_ai_classification_v3,public
     username: ${TEST_DATABASE_USERNAME}
     password: ${TEST_DATABASE_PASSWORD}
+    hikari:
+      connection-init-sql: >-
+        DO $guard$ BEGIN
+          IF current_database() <> 'mira_test' THEN
+            RAISE EXCEPTION 'Integration tests must use mira_test';
+          END IF;
+        END $guard$;
   jpa:
     hibernate:
       ddl-auto: validate

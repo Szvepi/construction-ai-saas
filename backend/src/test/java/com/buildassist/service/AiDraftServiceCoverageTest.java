@@ -10,6 +10,8 @@ import com.buildassist.calculation.InputSource;
 import com.buildassist.dto.AiDtos;
 import com.buildassist.dto.AiQuoteDtos;
 import com.buildassist.dto.DraftDtos;
+import com.buildassist.controller.DraftController;
+import com.buildassist.controller.EmailDraftController;
 import com.buildassist.model.CatalogItem;
 import com.buildassist.model.CompanyProfile;
 import com.buildassist.model.Email;
@@ -34,6 +36,8 @@ import org.mockito.Mock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.spring6.SpringTemplateEngine;
 
@@ -69,6 +73,7 @@ class AiDraftServiceCoverageTest {
     @Mock private QuotePdfService quotePdfService;
     @Mock private QuoteEmailMessageFactory quoteEmailMessageFactory;
     @Mock private AiQuoteExtractionService aiQuoteExtractionService;
+    @Mock private QuoteSetupValidationService quoteSetupValidationService;
     @Mock private ChatModel chatModel;
 
     private ObjectMapper objectMapper;
@@ -92,6 +97,7 @@ class AiDraftServiceCoverageTest {
                 gmailConnectionRepository, emailDraftRepository, tokenEncryptionService,
                 objectMapper, templateEngine, quotePdfService, quoteEmailMessageFactory,
                 coverageService, aiQuoteExtractionService, builder, snapshotService, pricingService,
+                quoteSetupValidationService,
                 mock(GmailApiClient.class));
 
         User user = new User();
@@ -115,11 +121,20 @@ class AiDraftServiceCoverageTest {
         catalogItem.setNetSellingUnitPrice(new BigDecimal("3500"));
         catalogItem.setEstimatedOwnLaborUnitCost(new BigDecimal("1700"));
         catalogItem.setCalculationConfigJson(objectMapper.writeValueAsString(config));
+        org.mockito.Mockito.lenient()
+                .when(quoteSetupValidationService.requireReady(USER_ID))
+                .thenReturn(List.of(catalogItem));
+        org.mockito.Mockito.lenient()
+                .when(quoteSetupValidationService.isUsableCatalogItem(
+                        eq(USER_ID), any(CatalogItem.class)))
+                .thenReturn(true);
 
-        when(emailRepository.findByIdAndGmailConnectionUserId(EMAIL_ID, USER_ID))
+        org.mockito.Mockito.lenient()
+                .when(emailRepository.findByIdAndGmailConnectionUserId(EMAIL_ID, USER_ID))
                 .thenReturn(Optional.of(email));
-        when(catalogItemRepository.findAllByUserId(USER_ID)).thenReturn(List.of(catalogItem));
-        when(emailDraftRepository.save(any(EmailDraft.class))).thenAnswer(invocation -> {
+        org.mockito.Mockito.lenient()
+                .when(catalogItemRepository.findAllByUserId(USER_ID)).thenReturn(List.of(catalogItem));
+        org.mockito.Mockito.lenient().when(emailDraftRepository.save(any(EmailDraft.class))).thenAnswer(invocation -> {
             EmailDraft draft = invocation.getArgument(0);
             if (draft.getId() == null) {
                 draft.setId(DRAFT_ID);
@@ -154,6 +169,46 @@ class AiDraftServiceCoverageTest {
         assertEquals(0, new BigDecimal("20").compareTo(
                 persisted.lineItems().getFirst().requiredQuantity().value()));
         assertEquals(response.quoteSnapshot(), persisted);
+    }
+
+    @Test
+    void incompleteSetupBlocksBothAiEntryPointsBeforeModelOrDraftPersistence() {
+        org.mockito.Mockito.doThrow(new QuoteSetupIncompleteException(
+                        List.of("COMPANY_PROFILE", "CATALOG")))
+                .when(quoteSetupValidationService).requireReady(USER_ID);
+
+        assertThrows(QuoteSetupIncompleteException.class,
+                () -> aiDraftService.analyzeEmail(EMAIL_ID, USER_ID));
+        assertThrows(QuoteSetupIncompleteException.class,
+                () -> aiDraftService.generateAndSaveDraft(EMAIL_ID, USER_ID));
+
+        verify(aiQuoteExtractionService, never()).extract(any(), any(), any());
+        verify(emailRepository, never()).findByIdAndGmailConnectionUserId(anyLong(), anyLong());
+        verify(emailDraftRepository, never()).save(any(EmailDraft.class));
+    }
+
+    @Test
+    void directGenerationControllersCannotBypassTheSetupGuard() {
+        org.mockito.Mockito.doThrow(new QuoteSetupIncompleteException(
+                        List.of("COMPANY_PROFILE", "CATALOG")))
+                .when(quoteSetupValidationService).requireReady(USER_ID);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(USER_ID, "test"));
+
+        try {
+            EmailDraftController analyzeController = new EmailDraftController(aiDraftService);
+            DraftController generateController = new DraftController(new DraftService(), aiDraftService);
+
+            assertThrows(QuoteSetupIncompleteException.class,
+                    () -> analyzeController.analyze(EMAIL_ID, new DraftDtos.AnalyzeRequest(null)));
+            assertThrows(QuoteSetupIncompleteException.class,
+                    () -> generateController.generate(EMAIL_ID));
+
+            verify(aiQuoteExtractionService, never()).extract(any(), any(), any());
+            verify(emailDraftRepository, never()).save(any(EmailDraft.class));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     @Test
