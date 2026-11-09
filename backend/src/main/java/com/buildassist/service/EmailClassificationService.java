@@ -8,12 +8,6 @@ import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.sql.Date;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,6 +19,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.sql.Date;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class EmailClassificationService {
@@ -314,8 +315,8 @@ public class EmailClassificationService {
             int outputTokens = response != null && response.hasUsage()
                     ? response.outputTokens()
                     : response == null
-                        ? reservation.reservedOutputTokens()
-                        : OpenAiTokenCounter.count(response.content());
+                    ? reservation.reservedOutputTokens()
+                    : OpenAiTokenCounter.count(response.content());
             String failureCategory = response == null ? "model_call" : "invalid_response";
             recordFailure(
                     claim, reservation, inputTokens, outputTokens,
@@ -348,7 +349,7 @@ public class EmailClassificationService {
         String baseContext = objectMapper.writeValueAsString(base);
         int inputLimit = properties.getMaxInputTokens();
         int bodyBudget = Math.max(0,
-                inputLimit - OpenAiTokenCounter.count(SpringAiEmailClassificationModel.SYSTEM_PROMPT)
+                inputLimit - OpenAiTokenCounter.count(SpringAiEmailClassificationModel.EMAIL_CLASSIFY_PROMPT)
                         - OpenAiTokenCounter.count(baseContext) - 16);
         String body = EmailModelInputPreparer.prepare(email.body(), bodyBudget);
 
@@ -356,7 +357,7 @@ public class EmailClassificationService {
             String context = objectMapper.writeValueAsString(new ModelInput(
                     base.subject(), base.from(), base.metadata(), body));
             int tokens = OpenAiTokenCounter.count(
-                    SpringAiEmailClassificationModel.SYSTEM_PROMPT + "\n" + context) + 8;
+                    SpringAiEmailClassificationModel.EMAIL_CLASSIFY_PROMPT + "\n" + context) + 8;
             if (tokens <= inputLimit) {
                 return new PreparedModelInput(context, tokens);
             }

@@ -8,17 +8,6 @@ import com.buildassist.model.User;
 import com.buildassist.repository.EmailRepository;
 import com.buildassist.repository.GmailConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.math.BigDecimal;
-import java.sql.Date;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,20 +19,23 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import java.math.BigDecimal;
+import java.sql.Date;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class EmailClassificationServiceTest {
@@ -123,48 +115,48 @@ class EmailClassificationServiceTest {
     void schedulerRunClaimsNoMoreThanTheConfiguredMaximum() {
         appProperties.getEmailClassification().setMaxPerRun(5);
         List<Email> batch = java.util.stream.IntStream.range(0, 6)
-        .mapToObj(index -> {
-            Email email = queuedEmail("Új tetőfedési munkára kérek ajánlatot.");
-            email.setId(101L + index);
-            return email;
-        })
-        .toList();
+                .mapToObj(index -> {
+                    Email email = queuedEmail("Új tetőfedési munkára kérek ajánlatot.");
+                    email.setId(101L + index);
+                    return email;
+                })
+                .toList();
         Map<Long, Email> emailsById = new HashMap<>();
         batch.forEach(email -> emailsById.put(email.getId(), email));
         when(emails.lockNextClassificationDue(any(), any(), any(), any(Integer.class), any()))
-        .thenReturn(Optional.of(batch.get(0)))
-        .thenReturn(Optional.of(batch.get(1)))
-        .thenReturn(Optional.of(batch.get(2)))
-        .thenReturn(Optional.of(batch.get(3)))
-        .thenReturn(Optional.of(batch.get(4)))
-        .thenReturn(Optional.of(batch.get(5)));
+                .thenReturn(Optional.of(batch.get(0)))
+                .thenReturn(Optional.of(batch.get(1)))
+                .thenReturn(Optional.of(batch.get(2)))
+                .thenReturn(Optional.of(batch.get(3)))
+                .thenReturn(Optional.of(batch.get(4)))
+                .thenReturn(Optional.of(batch.get(5)));
         when(emails.findByIdForClassificationUpdate(any()))
-        .thenAnswer(invocation -> Optional.of(emailsById.get(invocation.getArgument(0))));
+                .thenAnswer(invocation -> Optional.of(emailsById.get(invocation.getArgument(0))));
         doAnswer(invocation -> {
             Long emailId = invocation.getArgument(0);
             Email email = emailsById.get(emailId);
             int attemptNumber = invocation.getArgument(4);
             EmailClassificationBudgetService.Reservation reservation =
-            new EmailClassificationBudgetService.Reservation(
-                    emailId + 1_000,
-                    Date.valueOf(LocalDate.now(Clock.fixed(NOW, ZoneOffset.UTC))),
-                    1L,
-                    emailId,
-                    attemptNumber,
-                    100,
-                    256,
-                    new BigDecimal("0.000200000"));
+                    new EmailClassificationBudgetService.Reservation(
+                            emailId + 1_000,
+                            Date.valueOf(LocalDate.now(Clock.fixed(NOW, ZoneOffset.UTC))),
+                            1L,
+                            emailId,
+                            attemptNumber,
+                            100,
+                            256,
+                            new BigDecimal("0.000200000"));
             email.setClassificationAttempts(attemptNumber);
             email.setClassificationActiveAttemptId(reservation.attemptId());
             return EmailClassificationBudgetService.ReservationResult.allowed(reservation);
         }).when(budgets).reserve(any(), any(), anyString(), anyString(),
-        any(Integer.class), any(Integer.class), any(Integer.class));
+                any(Integer.class), any(Integer.class), any(Integer.class));
         when(model.classify(anyString())).thenReturn(response(EmailCategory.OTHER));
 
         service.classifyDueEmails();
 
         verify(emails, org.mockito.Mockito.times(5)).lockNextClassificationDue(
-        any(), any(), any(), any(Integer.class), any());
+                any(), any(), any(), any(Integer.class), any());
         verify(model, org.mockito.Mockito.times(5)).classify(anyString());
         assertEquals("PENDING", batch.get(5).getClassificationStatus());
     }
@@ -478,7 +470,7 @@ class EmailClassificationServiceTest {
         org.mockito.ArgumentCaptor<String> context = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(model).classify(context.capture());
         assertTrue(OpenAiTokenCounter.count(
-                SpringAiEmailClassificationModel.SYSTEM_PROMPT + "\n" + context.getValue()) + 8 <= 512);
+                SpringAiEmailClassificationModel.EMAIL_CLASSIFY_PROMPT + "\n" + context.getValue()) + 8 <= 512);
         assertTrue(context.getValue().contains("Új tetőfedési munkára"));
     }
 
@@ -491,8 +483,8 @@ class EmailClassificationServiceTest {
         allowBudget(email);
         when(model.classify(anyString())).thenReturn(new EmailClassificationModel.ClassificationResponse(
                 """
-                {"category":"QUOTE_REQUEST","reason":"Új munkát kér.","evidence":"kérek ajánlatot"}
-                """,
+                        {"category":"QUOTE_REQUEST","reason":"Új munkát kér.","evidence":"kérek ajánlatot"}
+                        """,
                 713,
                 29));
 
@@ -548,8 +540,8 @@ class EmailClassificationServiceTest {
     private static EmailClassificationModel.ClassificationResponse response(EmailCategory category) {
         return new EmailClassificationModel.ClassificationResponse(
                 """
-                {"category":"%s","reason":"Új munkát kér.","evidence":"kérek árajánlatot"}
-                """.formatted(category), null, null);
+                        {"category":"%s","reason":"Új munkát kér.","evidence":"kérek árajánlatot"}
+                        """.formatted(category), null, null);
     }
 
     static Stream<org.junit.jupiter.params.provider.Arguments> representativeHungarianEmails() {
