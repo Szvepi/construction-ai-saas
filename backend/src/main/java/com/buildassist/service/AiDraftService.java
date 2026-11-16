@@ -1551,6 +1551,9 @@ public class AiDraftService {
                 ? profile.getOfferorName() : "");
         context.setVariable("offerorPhone", profile != null && profile.getOfferorPhone() != null
                 ? PhoneNumberUtils.formatForDisplay(profile.getOfferorPhone()) : "");
+        context.setVariable("contactEmail", profile == null ? ""
+                : profile.getContactEmail() != null ? profile.getContactEmail()
+                : profile.getUser() != null ? profile.getUser().getEmail() : "");
         return templateEngine.process("draft", context);
     }
 

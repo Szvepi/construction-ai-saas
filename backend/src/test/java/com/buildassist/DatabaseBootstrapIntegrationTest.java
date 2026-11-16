@@ -69,12 +69,13 @@ class DatabaseBootstrapIntegrationTest {
         assertEquals("mira_test", jdbcTemplate.queryForObject("SELECT current_database()", String.class));
         assertEquals("mira_test_ai_classification_v3",
                 jdbcTemplate.queryForObject("SELECT current_schema()", String.class));
-        assertEquals(List.of("1", "2"), jdbcTemplate.query(
+        assertEquals(List.of("1", "2", "3"), jdbcTemplate.query(
                 "SELECT version FROM flyway_schema_history "
                         + "WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank",
                 (resultSet, rowNum) -> resultSet.getString(1)));
         assertTrue(migrationExists("1"));
         assertTrue(migrationExists("2"));
+        assertTrue(migrationExists("3"));
 
         List<String> expectedTables = List.of(
                 "users", "gmail_connections", "emails", "email_drafts", "company_profiles", "catalog_items",
@@ -87,6 +88,7 @@ class DatabaseBootstrapIntegrationTest {
         assertTrue(columnExists("email_drafts", "quote_snapshot"));
         assertTrue(columnExists("email_drafts", "draft_version"));
         assertTrue(columnExists("catalog_items", "calculation_config"));
+        assertTrue(columnExists("company_profiles", "contact_email"));
         assertTrue(columnExists("gmail_connections", "gmail_sync_retry_at"));
         assertTrue(columnExists("gmail_connections", "gmail_sync_auth_error_category"));
         assertTrue(columnExists("emails", "classification_status"));

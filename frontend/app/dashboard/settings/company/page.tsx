@@ -9,7 +9,7 @@ import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {CompanyProfile, SaveCompanyProfileRequest} from "@/lib/types";
 
-type FormData = SaveCompanyProfileRequest;
+type FormData = SaveCompanyProfileRequest & Pick<CompanyProfile, "contactEmail">;
 
 type TextFieldProps = {
     label: string;
@@ -19,7 +19,7 @@ type TextFieldProps = {
     placeholder?: string;
     maxLength?: number;
     inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
-    inputType?: "text" | "tel";
+    inputType?: "text" | "tel" | "email";
     helperText?: string;
     onChange?: (value: string) => void;
 };
@@ -28,6 +28,7 @@ const EMPTY_FORM: FormData = {
     companyName: "",
     legalForm: "",
     taxNumber: "",
+    contactEmail: "",
     euTaxNumber: "",
     offerorName: "",
     offerorPhone: "",
@@ -121,6 +122,7 @@ export default function CompanySettingsPage() {
                 companyName: profile.companyName ?? "",
                 legalForm: profile.legalForm ?? "",
                 taxNumber: formatSavedTaxNumber(profile.taxNumber ?? ""),
+                contactEmail: profile.contactEmail ?? "",
                 euTaxNumber: profile.euTaxNumber ?? "",
                 offerorName: profile.offerorName ?? "",
                 offerorPhone: formatPhoneInput(profile.offerorPhone ?? ""),
@@ -168,13 +170,14 @@ export default function CompanySettingsPage() {
         setSaved(false);
 
         try {
-            const request: SaveCompanyProfileRequest = formData;
+            const {contactEmail: _contactEmail, ...request}: FormData = formData;
             const savedProfile = await apiFetch<CompanyProfile>("/api/company-settings", {
                 method: "PUT",
                 body: request,
             });
             setFormData((current) => ({
                 ...current,
+                contactEmail: savedProfile.contactEmail ?? current.contactEmail,
                 offerorPhone: formatPhoneInput(savedProfile.offerorPhone ?? ""),
             }));
             setSaved(true);
@@ -262,6 +265,13 @@ export default function CompanySettingsPage() {
                                     inputType="tel"
                                     helperText="Magyar számot 06 vagy +36 előhívóval, külföldit + országkóddal adj meg, mellék nélkül. A mező nem kötelező."
                                     onChange={(value) => updateField("offerorPhone", formatPhoneInput(value))}
+                                />
+                                <TextField
+                                    label="Kapcsolattartó e-mail címe"
+                                    value={formData.contactEmail}
+                                    readOnly
+                                    inputType="email"
+                                    helperText="A Google-fiók e-mail-címe; az ajánlaton is megjelenik."
                                 />
                                 <label className="block text-sm font-medium text-slate-700">
                                     Adózási mód

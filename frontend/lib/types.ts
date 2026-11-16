@@ -334,6 +334,7 @@ export type CompanyProfile = {
   taxRegime: "AAM" | "VAT_REGISTERED" | "REVERSE_CHARGE_UNSUPPORTED";
   vatRate: number | null;
   offerTerms: string | null;
+  contactEmail: string | null;
 };
 
-export type SaveCompanyProfileRequest = Omit<CompanyProfile, "country">;
+export type SaveCompanyProfileRequest = Omit<CompanyProfile, "country" | "contactEmail">;

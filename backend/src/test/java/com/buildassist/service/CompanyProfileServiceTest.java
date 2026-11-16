@@ -42,16 +42,19 @@ class CompanyProfileServiceTest {
     void setUp() {
         user = new User();
         user.setId(7L);
+        user.setEmail("company@example.com");
     }
 
     @Test
     void getProfileReturnsFixedCountryAndBlankFieldsWhenNotYetSaved() {
         when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
 
         CompanyProfileResponse response = companyProfileService.getProfile(7L);
 
         assertEquals("", response.companyName());
         assertEquals("Magyarország", response.country());
+        assertEquals("company@example.com", response.contactEmail());
         assertNull(response.euTaxNumber());
         assertNull(response.offerorName());
         assertNull(response.offerorPhone());
@@ -72,6 +75,7 @@ class CompanyProfileServiceTest {
         assertEquals("Kovács János", response.offerorName());
         assertEquals("+36301234567", response.offerorPhone());
         assertEquals("12345676-1-42", response.taxNumber());
+        assertEquals("company@example.com", response.contactEmail());
         verify(companyProfileRepository).save(any(CompanyProfile.class));
     }
 

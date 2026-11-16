@@ -59,7 +59,19 @@ public final class CompanyProfileDtos {
         boolean vatRegistered,
         String offerTerms,
         String taxRegime,
-        BigDecimal vatRate) {
+        BigDecimal vatRate,
+        String contactEmail) {
+        public CompanyProfileResponse(
+                String companyName, String legalForm, String taxNumber, String euTaxNumber,
+                String offerorName, String offerorPhone, String country, String postalCode,
+                String city, String streetName, String streetType, String houseNumber,
+                String building, String staircase, String floor, String door,
+                boolean vatRegistered, String offerTerms, String taxRegime, BigDecimal vatRate) {
+            this(companyName, legalForm, taxNumber, euTaxNumber, offerorName, offerorPhone,
+                    country, postalCode, city, streetName, streetType, houseNumber, building,
+                    staircase, floor, door, vatRegistered, offerTerms, taxRegime, vatRate, null);
+        }
+
         public CompanyProfileResponse(
                 String companyName, String legalForm, String taxNumber, String euTaxNumber,
                 String offerorName, String offerorPhone, String country, String postalCode,
@@ -69,7 +81,7 @@ public final class CompanyProfileDtos {
             this(companyName, legalForm, taxNumber, euTaxNumber, offerorName, offerorPhone,
                     country, postalCode, city, streetName, streetType, houseNumber, building,
                     staircase, floor, door, vatRegistered, offerTerms,
-                    vatRegistered ? "VAT_REGISTERED" : "AAM", null);
+                    vatRegistered ? "VAT_REGISTERED" : "AAM", null, null);
         }
     }
 }

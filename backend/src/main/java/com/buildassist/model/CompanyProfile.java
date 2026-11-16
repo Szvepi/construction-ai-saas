@@ -65,6 +65,9 @@ public class CompanyProfile {
     @Column(name = "offeror_phone")
     private String offerorPhone;
 
+    @Column(name = "contact_email", length = 320)
+    private String contactEmail;
+
     @Column(nullable = false, length = 100)
     private String country = "Magyarország";
 

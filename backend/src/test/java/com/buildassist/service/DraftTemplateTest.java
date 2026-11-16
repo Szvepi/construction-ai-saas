@@ -31,6 +31,7 @@ class DraftTemplateTest {
         context.setVariable("grandTotal", "0");
         context.setVariable("offerorName", "");
         context.setVariable("offerorPhone", "");
+        context.setVariable("contactEmail", "company@example.com");
         context.setVariable("additionalNotes", "<b>Telefonos egyeztetés</b>\n35 m²");
 
         String rendered = templateEngine.process("draft", context);
@@ -38,6 +39,7 @@ class DraftTemplateTest {
         assertTrue(rendered.contains("Kiegészítő megjegyzés"));
         assertTrue(rendered.contains("&lt;b&gt;Telefonos egyeztetés&lt;/b&gt;"));
         assertTrue(rendered.contains("35 m²"));
+        assertTrue(rendered.contains("E-mail: <span>company@example.com</span>"));
         assertFalse(rendered.contains("<b>Telefonos egyeztetés</b>"));
     }
 }

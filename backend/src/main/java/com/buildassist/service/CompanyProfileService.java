@@ -38,7 +38,9 @@ public class CompanyProfileService {
     public CompanyProfileResponse getProfile(Long userId) {
         return companyProfileRepository.findByUserId(userId)
             .map(this::toResponse)
-            .orElseGet(this::emptyResponse);
+            .orElseGet(() -> emptyResponse(userRepository.findById(userId)
+                    .map(User::getEmail)
+                    .orElse(null)));
     }
 
     @Transactional
@@ -77,6 +79,7 @@ public class CompanyProfileService {
         profile.setEuTaxNumber(normalizeOptional(request.euTaxNumber()));
         profile.setOfferorName(normalizeOptional(request.offerorName()));
         profile.setOfferorPhone(PhoneNumberUtils.normalizeOptionalHungarianPhoneNumber(request.offerorPhone()));
+        profile.setContactEmail(user.getEmail());
         profile.setTaxRegime(taxRegime);
         profile.setVatRegistered("VAT_REGISTERED".equals(taxRegime));
         profile.setVatRate(vatRate);
@@ -116,11 +119,12 @@ public class CompanyProfileService {
             profile.isVatRegistered(),
             profile.getOfferTerms(),
             profile.getTaxRegime(),
-            profile.getVatRate()
+            profile.getVatRate(),
+            contactEmail(profile)
         );
     }
 
-    private CompanyProfileResponse emptyResponse() {
+    private CompanyProfileResponse emptyResponse(String contactEmail) {
         return new CompanyProfileResponse(
             "",
             "",
@@ -139,8 +143,18 @@ public class CompanyProfileService {
             null,
             null,
             false,
-            CompanyProfile.DEFAULT_OFFER_TERMS
+            CompanyProfile.DEFAULT_OFFER_TERMS,
+            "AAM",
+            null,
+            contactEmail
         );
+    }
+
+    private String contactEmail(CompanyProfile profile) {
+        if (profile.getContactEmail() != null && !profile.getContactEmail().isBlank()) {
+            return profile.getContactEmail();
+        }
+        return profile.getUser() != null ? profile.getUser().getEmail() : null;
     }
 
     private String normalizeOptional(String value) {
