@@ -1550,7 +1550,7 @@ public class AiDraftService {
         context.setVariable("offerorName", profile != null && profile.getOfferorName() != null
                 ? profile.getOfferorName() : "");
         context.setVariable("offerorPhone", profile != null && profile.getOfferorPhone() != null
-                ? profile.getOfferorPhone() : "");
+                ? PhoneNumberUtils.formatForDisplay(profile.getOfferorPhone()) : "");
         return templateEngine.process("draft", context);
     }
 

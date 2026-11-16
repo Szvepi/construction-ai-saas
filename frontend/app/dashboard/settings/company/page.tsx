@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useState} from "react";
 import {useRouter} from "next/navigation";
+import {AsYouType} from "libphonenumber-js";
 import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {Button} from "@/components/ui/Button";
 import {ApiError, apiFetch} from "@/lib/api";
@@ -15,6 +16,11 @@ type TextFieldProps = {
     value: string | null;
     required?: boolean;
     readOnly?: boolean;
+    placeholder?: string;
+    maxLength?: number;
+    inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+    inputType?: "text" | "tel";
+    helperText?: string;
     onChange?: (value: string) => void;
 };
 
@@ -40,20 +46,64 @@ const EMPTY_FORM: FormData = {
     offerTerms: "Jelen árajánlat a kiküldéstől számított 15 napig érvényes.\n\nA megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot a helyszíni felmérést követően rögzítjük.",
 };
 
-function TextField({label, value, required, readOnly, onChange}: TextFieldProps) {
+function TextField({
+                       label,
+                       value,
+                       required,
+                       readOnly,
+                       placeholder,
+                       maxLength,
+                       inputMode,
+                       inputType,
+                       helperText,
+                       onChange,
+                   }: TextFieldProps) {
     return (
         <label className="block text-sm font-medium text-slate-700">
             {label}{required ? " *" : ""}
             <input
-                type="text"
+                type={inputType ?? "text"}
                 value={value ?? ""}
                 required={required}
                 readOnly={readOnly}
+                placeholder={placeholder}
+                maxLength={maxLength}
+                inputMode={inputMode}
                 onChange={onChange ? (event) => onChange(event.target.value) : undefined}
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 read-only:bg-slate-100"
             />
+            {helperText && <span className="mt-1 block text-xs font-normal text-slate-500">{helperText}</span>}
         </label>
     );
+}
+
+function formatTaxNumberInput(value: string) {
+    const digits = value.replace(/\D/g, "").slice(0, 11);
+    if (digits.length <= 8) {
+        return digits;
+    }
+    if (digits.length === 9) {
+        return `${digits.slice(0, 8)}-${digits.slice(8)}`;
+    }
+    return `${digits.slice(0, 8)}-${digits.slice(8, 9)}-${digits.slice(9)}`;
+}
+
+function formatSavedTaxNumber(value: string) {
+    if (/^\d{8}(?:[-\s]?\d)(?:[-\s]?\d{2})$/.test(value)) {
+        return formatTaxNumberInput(value);
+    }
+    return value;
+}
+
+function formatPhoneInput(value: string) {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+        return "";
+    }
+    const internationalValue = trimmedValue.startsWith("00")
+        ? `+${trimmedValue.slice(2)}`
+        : trimmedValue;
+    return new AsYouType("HU").input(internationalValue);
 }
 
 export default function CompanySettingsPage() {
@@ -70,10 +120,10 @@ export default function CompanySettingsPage() {
             setFormData({
                 companyName: profile.companyName ?? "",
                 legalForm: profile.legalForm ?? "",
-                taxNumber: profile.taxNumber ?? "",
+                taxNumber: formatSavedTaxNumber(profile.taxNumber ?? ""),
                 euTaxNumber: profile.euTaxNumber ?? "",
                 offerorName: profile.offerorName ?? "",
-                offerorPhone: profile.offerorPhone ?? "",
+                offerorPhone: formatPhoneInput(profile.offerorPhone ?? ""),
                 postalCode: profile.postalCode ?? "",
                 city: profile.city ?? "",
                 streetName: profile.streetName ?? "",
@@ -119,10 +169,14 @@ export default function CompanySettingsPage() {
 
         try {
             const request: SaveCompanyProfileRequest = formData;
-            await apiFetch<CompanyProfile>("/api/company-settings", {
+            const savedProfile = await apiFetch<CompanyProfile>("/api/company-settings", {
                 method: "PUT",
                 body: request,
             });
+            setFormData((current) => ({
+                ...current,
+                offerorPhone: formatPhoneInput(savedProfile.offerorPhone ?? ""),
+            }));
             setSaved(true);
         } catch (err) {
             if (err instanceof ApiError && err.status === 401) {
@@ -183,7 +237,11 @@ export default function CompanySettingsPage() {
                                     label="Adószám"
                                     value={formData.taxNumber}
                                     required
-                                    onChange={(value) => updateField("taxNumber", value)}
+                                    placeholder="12345676-1-42"
+                                    maxLength={13}
+                                    inputMode="numeric"
+                                    helperText="A belföldi adószám 8-1-2 számjegyű. A HU előtagú közösségi adószámot külön add meg."
+                                    onChange={(value) => updateField("taxNumber", formatTaxNumberInput(value))}
                                 />
                                 <TextField
                                     label="Közösségi adószám"
@@ -198,7 +256,12 @@ export default function CompanySettingsPage() {
                                 <TextField
                                     label="Ajánlatadó telefonszáma"
                                     value={formData.offerorPhone}
-                                    onChange={(value) => updateField("offerorPhone", value)}
+                                    placeholder="+36 30 123 4567"
+                                    maxLength={30}
+                                    inputMode="tel"
+                                    inputType="tel"
+                                    helperText="Magyar számot 06 vagy +36 előhívóval, külföldit + országkóddal adj meg, mellék nélkül. A mező nem kötelező."
+                                    onChange={(value) => updateField("offerorPhone", formatPhoneInput(value))}
                                 />
                                 <label className="block text-sm font-medium text-slate-700">
                                     Adózási mód
@@ -218,7 +281,7 @@ export default function CompanySettingsPage() {
                                     >
                                         <option value="AAM">Alanyi adómentes (AAM)</option>
                                         <option value="VAT_REGISTERED">ÁFA felszámítására kötelezett</option>
-                                        <option value="REVERSE_CHARGE_UNSUPPORTED">Fordított adózás (jelenleg nem támogatott)</option>
+                                        {/*<option value="REVERSE_CHARGE_UNSUPPORTED">Fordított adózás (jelenleg nem támogatott)</option>*/}
                                     </select>
                                 </label>
                                 {formData.taxRegime === "VAT_REGISTERED" && (

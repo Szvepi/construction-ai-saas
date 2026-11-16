@@ -171,7 +171,7 @@ class QuoteSetupValidationServiceTest {
         CompanyProfile profile = new CompanyProfile();
         profile.setCompanyName("Minta Kft.");
         profile.setLegalForm("Kft.");
-        profile.setTaxNumber("12345678-1-12");
+        profile.setTaxNumber("12345676-1-12");
         profile.setCountry("Magyarország");
         profile.setPostalCode("1011");
         profile.setCity("Budapest");

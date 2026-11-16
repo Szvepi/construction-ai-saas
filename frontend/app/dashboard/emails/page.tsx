@@ -99,7 +99,9 @@ export default function DashboardPage() {
                 setRefreshMessage(`${result.message} ${result.fetchedCount} új levél importálva.`);
             }
             await loadData();
-            setEmailRefreshKey((current) => current + 1);
+            if (result.fetchedCount > 0) {
+                setEmailRefreshKey((current) => current + 1);
+            }
         } catch (err) {
             if (err instanceof ApiError && err.status === 401) {
                 router.push("/auth/login");

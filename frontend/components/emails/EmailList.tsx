@@ -325,13 +325,13 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                 )}
 
                 <div className="min-h-64 border-t border-slate-100">
-                    {loading ? (
+                    {loading && !result ? (
                         <div className="space-y-3 p-4 sm:p-6" aria-label="Levelek betöltése">
                             {Array.from({length: 5}, (_, index) => (
                                 <div key={index} className="h-[76px] animate-pulse rounded-xl bg-slate-100"/>
                             ))}
                         </div>
-                    ) : !error && result?.content.length === 0 ? (
+                    ) : result?.content.length === 0 ? (
                         <div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
                             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
                                 <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -350,7 +350,7 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                                         : "Frissítsd a leveleket a Gmailből, vagy válassz egy másik kategóriát."}
                             </p>
                         </div>
-                    ) : !error && result ? (
+                    ) : result ? (
                         <ul className="divide-y divide-slate-100">
                             {result.content.map((email) => {
                                 const categoryBadge = CATEGORY_MAP[email.category];
@@ -444,7 +444,7 @@ export function EmailList({gmailConnected, refreshKey, onEmailUpdated}: Props) {
                     ) : null}
                 </div>
 
-                {result && !loading && !error && (
+                {result && (
                     <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                         <p>
                             {result.totalElements > 0

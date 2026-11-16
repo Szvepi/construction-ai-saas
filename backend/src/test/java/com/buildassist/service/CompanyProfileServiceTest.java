@@ -14,10 +14,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.List;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,8 +70,98 @@ class CompanyProfileServiceTest {
         assertEquals("Magyarország", response.country());
         assertNull(response.euTaxNumber());
         assertEquals("Kovács János", response.offerorName());
-        assertEquals("+36 30 123 4567", response.offerorPhone());
+        assertEquals("+36301234567", response.offerorPhone());
+        assertEquals("12345676-1-42", response.taxNumber());
         verify(companyProfileRepository).save(any(CompanyProfile.class));
+    }
+
+    @Test
+    void saveProfileFormatsUnseparatedTaxNumber() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(companyProfileRepository.save(any(CompanyProfile.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest unformatted = withTaxNumber(base, "12345676142");
+
+        CompanyProfileResponse response = companyProfileService.saveProfile(7L, unformatted);
+
+        assertEquals("12345676-1-42", response.taxNumber());
+    }
+
+    @Test
+    void saveProfileNormalizesHungarianPhoneNumberToE164() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(companyProfileRepository.save(any(CompanyProfile.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest domesticPhone = withOfferorPhone(base, "06 30 123 4567");
+
+        CompanyProfileResponse response = companyProfileService.saveProfile(7L, domesticPhone);
+
+        assertEquals("+36301234567", response.offerorPhone());
+    }
+
+    @Test
+    void saveProfileAllowsEmptyOptionalPhoneNumber() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(companyProfileRepository.save(any(CompanyProfile.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest blankPhone = withOfferorPhone(base, "  ");
+
+        CompanyProfileResponse response = companyProfileService.saveProfile(7L, blankPhone);
+
+        assertNull(response.offerorPhone());
+    }
+
+    @Test
+    void saveProfileRejectsInvalidPhoneNumber() {
+        SaveCompanyProfileRequest base = request(null);
+        SaveCompanyProfileRequest invalidPhone = withOfferorPhone(base, "06 30 12");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> companyProfileService.saveProfile(7L, invalidPhone));
+    }
+
+    @Test
+    void saveProfileRejectsInvalidTaxNumberFormat() {
+        SaveCompanyProfileRequest invalid = withTaxNumber(request(null), "HU12345678");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> companyProfileService.saveProfile(7L, invalid));
+        assertEquals("Az adószám nem érvényes magyar adószám. Ellenőrizd a törzsszámot, áfakódot és területi kódot.",
+                exception.getMessage());
+    }
+
+    @Test
+    void saveProfileRejectsInvalidCheckDigitVatCodeAndTaxAuthorityCode() {
+        List<String> invalidTaxNumbers = List.of(
+                "12345678-1-42",
+                "12345676-0-42",
+                "12345676-1-45",
+                "12345676-5-42");
+
+        for (String taxNumber : invalidTaxNumbers) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> companyProfileService.saveProfile(7L, withTaxNumber(request(null), taxNumber)),
+                    taxNumber);
+        }
+    }
+
+    @Test
+    void acceptsGroupTaxNumberWithRequiredPrefix() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(companyProfileRepository.findByUserId(7L)).thenReturn(Optional.empty());
+        when(companyProfileRepository.save(any(CompanyProfile.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SaveCompanyProfileRequest groupRequest = withTaxNumber(request(null), "17700001-5-51");
+
+        CompanyProfileResponse response = companyProfileService.saveProfile(7L, groupRequest);
+
+        assertEquals("17700001-5-51", response.taxNumber());
     }
 
     @Test
@@ -125,7 +217,7 @@ class CompanyProfileServiceTest {
         return new SaveCompanyProfileRequest(
             " Minta Kft. ",
             " Kft. ",
-            " 12345678-1-42 ",
+            " 12345676-1-42 ",
             euTaxNumber,
             " Kovács János ",
             " +36 30 123 4567 ",
@@ -141,5 +233,24 @@ class CompanyProfileServiceTest {
             false,
             null
         );
+    }
+
+    private SaveCompanyProfileRequest withTaxNumber(SaveCompanyProfileRequest request, String taxNumber) {
+        return new SaveCompanyProfileRequest(
+                request.companyName(), request.legalForm(), taxNumber, request.euTaxNumber(),
+                request.offerorName(), request.offerorPhone(), request.postalCode(), request.city(),
+                request.streetName(), request.streetType(), request.houseNumber(), request.building(),
+                request.staircase(), request.floor(), request.door(), request.vatRegistered(),
+                request.offerTerms(), request.taxRegime(), request.vatRate());
+    }
+
+    private SaveCompanyProfileRequest withOfferorPhone(
+            SaveCompanyProfileRequest request, String offerorPhone) {
+        return new SaveCompanyProfileRequest(
+                request.companyName(), request.legalForm(), request.taxNumber(), request.euTaxNumber(),
+                request.offerorName(), offerorPhone, request.postalCode(), request.city(),
+                request.streetName(), request.streetType(), request.houseNumber(), request.building(),
+                request.staircase(), request.floor(), request.door(), request.vatRegistered(),
+                request.offerTerms(), request.taxRegime(), request.vatRate());
     }
 }
