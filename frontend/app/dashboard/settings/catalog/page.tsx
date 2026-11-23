@@ -431,9 +431,6 @@ export default function CatalogSettingsPage() {
                             ajánlatkészítéshez.
                         </p>
                     </div>
-                    <Button onClick={startNewItem} disabled={showForm} className="shrink-0">
-                        Új árjegyzéktétel
-                    </Button>
                 </header>
 
                 <CatalogInfoBanner/>
@@ -782,7 +779,12 @@ export default function CatalogSettingsPage() {
                     </div>
                 ) : items.length > 0 ? (
                     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900">Mentett árjegyzéktételek</h2>
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <h2 className="text-lg font-semibold text-slate-900">Mentett árjegyzéktételek</h2>
+                            <Button onClick={startNewItem} disabled={showForm} className="w-full sm:w-auto">
+                                Új árjegyzéktétel
+                            </Button>
+                        </div>
 
                         <div className="space-y-3 md:hidden">
                             {items.map((item) => (
