@@ -63,6 +63,13 @@ public class EmailController {
         return emailService.getEmail(SecurityUtils.currentUserId(), id);
     }
 
+    @PostMapping("/{id}/refresh-body")
+    public EmailDetailResponse refreshBody(@PathVariable Long id) {
+        Long userId = SecurityUtils.currentUserId();
+        gmailInboxSyncService.refreshEmailBody(userId, id);
+        return emailService.getEmail(userId, id);
+    }
+
     @PostMapping("/refresh")
     public RefreshEmailsResponse refresh() {
         return gmailInboxSyncService.refresh(SecurityUtils.currentUserId());

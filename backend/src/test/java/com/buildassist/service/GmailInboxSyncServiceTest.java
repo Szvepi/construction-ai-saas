@@ -4,6 +4,7 @@ import com.buildassist.config.AppProperties;
 import com.buildassist.dto.EmailDtos.RefreshEmailsResponse;
 import com.buildassist.model.Email;
 import com.buildassist.model.EmailCategory;
+import com.buildassist.model.GmailConnection;
 import com.buildassist.repository.EmailRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -116,6 +117,36 @@ class GmailInboxSyncServiceTest {
                 .filter(operation -> operation == GmailApiOperation.PROFILE_GET).count());
         assertEquals(3_006, apiOperations.stream()
                 .mapToInt(operation -> operation.quotaUnits(properties.getGmail())).sum());
+        server.verify();
+    }
+
+    @Test
+    void refreshEmailBodyFetchesAndPersistsContentForAnOwnedEmail() {
+        Email email = new Email();
+        email.setId(13L);
+        email.setGmailMessageId("gmail-message-13");
+        email.setCategory(EmailCategory.OTHER);
+        GmailConnection connection = new GmailConnection();
+        connection.setId(CONNECTION_ID);
+        email.setGmailConnection(connection);
+        when(emailRepository.findByIdAndGmailConnectionUserId(13L, USER_ID)).thenReturn(Optional.of(email));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/messages/gmail-message-13?format=full")))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"payload":{"mimeType":"text/plain","headers":[],
+                         "body":{"data":"bWVzc2FnZSBib2R5"}}}
+                        """, APPLICATION_JSON));
+        Email refreshedEmail = new Email();
+        refreshedEmail.setBodyText("message body");
+        when(emailService.createEmailFromGmailResponse(
+                eq(null), eq("gmail-message-13"), any(), any(), eq(EmailCategory.OTHER)))
+                .thenReturn(refreshedEmail);
+
+        syncService.refreshEmailBody(USER_ID, 13L);
+
+        assertEquals("message body", email.getBodyText());
+        verify(emailRepository).save(email);
         server.verify();
     }
 

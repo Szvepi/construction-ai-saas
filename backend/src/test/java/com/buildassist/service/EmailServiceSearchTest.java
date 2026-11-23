@@ -22,6 +22,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -190,6 +191,57 @@ class EmailServiceSearchTest {
 
         assertEquals("", spam.getBodyText());
         assertEquals("quote-request-body", quoteRequest.getBodyText());
+    }
+
+    @Test
+    void nestedMimePartsPreferPlainTextAndIgnoreAttachments() throws Exception {
+        String plainText = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                "Tisztelt Partnerünk!\n\nCsatoltan küldjük a számlát.".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        com.fasterxml.jackson.databind.JsonNode fullMessage = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("""
+                        {"internalDate":"1792680000000","payload":{
+                          "mimeType":"multipart/mixed",
+                          "parts":[
+                            {"mimeType":"text/plain","filename":"attachment.txt",
+                             "body":{"data":"YXR0YWNobWVudCB0ZXh0"}},
+                            {"mimeType":"multipart/alternative","parts":[
+                              {"mimeType":"text/html","body":{"data":"PHA+SFRNTDwvcD4="}},
+                              {"mimeType":"text/plain","body":{"data":"%s"}}
+                            ]}
+                          ]}}
+                        """.formatted(plainText));
+
+        Email email = emailService.createEmailFromGmailResponse(
+                null,
+                "nested-mime-id",
+                fullMessage.path("payload").path("headers"),
+                fullMessage,
+                EmailCategory.OTHER);
+
+        assertEquals("Tisztelt Partnerünk!\n\nCsatoltan küldjük a számlát.", email.getBodyText());
+    }
+
+    @Test
+    void htmlMimePartIsConvertedToReadableTextWhenPlainTextIsMissing() throws Exception {
+        String html = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                "<p>Hello <strong>partner</strong></p><p>Invoice attached<br>Regards</p>"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        com.fasterxml.jackson.databind.JsonNode fullMessage = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree("""
+                        {"internalDate":"1792680000000","payload":{
+                          "mimeType":"multipart/related",
+                          "parts":[{"mimeType":"text/html","body":{"data":"%s"}}]}}
+                        """.formatted(html));
+
+        Email email = emailService.createEmailFromGmailResponse(
+                null,
+                "html-mime-id",
+                fullMessage.path("payload").path("headers"),
+                fullMessage,
+                EmailCategory.OTHER);
+
+        assertEquals("Hello partner\nInvoice attached\nRegards", email.getBodyText());
+        assertFalse(email.getBodyText().contains("<"));
     }
 
     @Test

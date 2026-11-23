@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -70,6 +71,34 @@ public class GmailInboxSyncService {
         return new BackfillResponse(
                 response.fetchedCount(), response.processedCount(), response.hasMore(),
                 response.complete(), response.inProgress() || response.waiting(), response.message());
+    }
+
+    @Transactional
+    public void refreshEmailBody(Long userId, Long emailId) {
+        Email email = emailRepository.findByIdAndGmailConnectionUserId(emailId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Email not found: " + emailId));
+        if (email.getCategory() == EmailCategory.SPAM
+                || (email.getBodyText() != null && !email.getBodyText().isBlank())) {
+            return;
+        }
+
+        Long connectionId = email.getGmailConnection().getId();
+        URI fullUri = UriComponentsBuilder.fromUriString(GMAIL_MESSAGES_URL)
+                .pathSegment(email.getGmailMessageId())
+                .queryParam("format", "full")
+                .build()
+                .encode()
+                .toUri();
+        JsonNode fullMessage = getJson(
+                fullUri, accessToken(connectionId), RequestKind.MESSAGE_FULL, connectionId, 1);
+        Email refreshedEmail = emailService.createEmailFromGmailResponse(
+                null,
+                email.getGmailMessageId(),
+                fullMessage.path("payload").path("headers"),
+                fullMessage,
+                email.getCategory());
+        email.setBodyText(refreshedEmail.getBodyText());
+        emailRepository.save(email);
     }
 
     public RefreshEmailsResponse refresh(Long userId) {

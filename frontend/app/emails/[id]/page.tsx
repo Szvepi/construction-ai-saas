@@ -22,12 +22,29 @@ export default function EmailDetailPage() {
     const [email, setEmail] = useState<EmailDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [bodyRefreshError, setBodyRefreshError] = useState<string | null>(null);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [pdfPreview, setPdfPreview] = useState<PdfPreview | null>(null);
 
     const loadEmail = useCallback(async () => {
         try {
-            const data = await apiFetch<EmailDetail>(`/api/emails/${emailId}`);
+            let data = await apiFetch<EmailDetail>(`/api/emails/${emailId}`);
+            setBodyRefreshError(null);
+            if (!data.bodyText?.trim() && data.category !== "SPAM") {
+                try {
+                    data = await apiFetch<EmailDetail>(`/api/emails/${emailId}/refresh-body`, {method: "POST"});
+                } catch (refreshError) {
+                    if (refreshError instanceof ApiError && refreshError.status === 401) {
+                        router.push("/auth/login");
+                        return;
+                    }
+                    setBodyRefreshError(
+                        refreshError instanceof ApiError
+                            ? refreshError.message
+                            : "A levél tartalmát nem sikerült újra betölteni a Gmailből.",
+                    );
+                }
+            }
             setEmail(data);
             setError(null);
         } catch (err) {
@@ -130,6 +147,12 @@ export default function EmailDetailPage() {
                                 Ellenőrizd az eredeti kérést, majd készítsd elő az ajánlatot.
                             </p>
                         </div>
+
+                        {bodyRefreshError && (
+                            <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                A levél tartalma nem tölthető be a Gmailből: {bodyRefreshError}
+                            </div>
+                        )}
 
                         <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.65fr)]">
                             <EmailSourcePanel email={email}/>

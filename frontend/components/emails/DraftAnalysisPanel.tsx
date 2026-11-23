@@ -232,8 +232,10 @@ export function DraftAnalysisPanel({
             </div>
 
             {!setupReady && (
-                <div role={quoteSetupError ? "alert" : "status"}
-                     className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <div
+                    role={quoteSetupError ? "alert" : "status"}
+                    className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                >
                     <p>
                         {quoteSetupError
                             ? `A beállítások ellenőrzése nem sikerült: ${quoteSetupError}`
@@ -241,17 +243,25 @@ export function DraftAnalysisPanel({
                                 ? "AI-ajánlat csak hiánytalan céges adatokkal és használható árjegyzékkel készíthető."
                                 : "Az ajánlatkészítési beállítások ellenőrzése folyamatban…"}
                     </p>
-                    {showCompanySetupLink && (
-                        <Link className="mt-2 inline-block font-semibold underline underline-offset-2"
-                              href="/dashboard/settings/company">
-                            Céges adatok kitöltése
-                        </Link>
-                    )}
-                    {showCatalogSetupLink && (
-                        <Link className="mt-2 inline-block font-semibold underline underline-offset-2"
-                              href="/dashboard/settings/catalog">
-                            Használható árjegyzék létrehozása
-                        </Link>
+                    {(showCompanySetupLink || showCatalogSetupLink) && (
+                        <div className="mt-2 flex flex-col items-start gap-2">
+                            {showCompanySetupLink && (
+                                <Link
+                                    className="font-semibold underline underline-offset-2"
+                                    href="/dashboard/settings/company"
+                                >
+                                    Céges adatok kitöltése
+                                </Link>
+                            )}
+                            {showCatalogSetupLink && (
+                                <Link
+                                    className="font-semibold underline underline-offset-2"
+                                    href="/dashboard/settings/catalog"
+                                >
+                                    Használható árjegyzék létrehozása
+                                </Link>
+                            )}
+                        </div>
                     )}
                     {quoteSetupError && (
                         <p className="mt-1 text-xs">
@@ -261,56 +271,62 @@ export function DraftAnalysisPanel({
                 </div>
             )}
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                    <label htmlFor={notesId} className="mb-2 block text-sm font-medium text-slate-700">
-                        Kiegészítés telefonos vagy helyszíni egyeztetés alapján
-                    </label>
-                    <textarea
-                        id={notesId}
-                        rows={3}
-                        value={additionalNotes}
-                        onChange={(event) => onAdditionalNotesChange(event.target.value)}
-                        disabled={busy}
-                        className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
-                        placeholder="Például: telefonon egyeztettük a bontást is, a terület 35 m²."
-                    />
-                    <p className="mt-1.5 text-xs text-slate-500">
-                        Mira az elemzéskor figyelembe veszi ezt a szöveget.
-                    </p>
-                </div>
-
-                {draftId && (
-                    <>
-                        <div>
-                            <label htmlFor={clientNameId} className="mb-2 block text-sm font-medium text-slate-700">
-                                Ügyfél neve
+            {(setupReady || draftId) && (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    {setupReady && (
+                        <div className="sm:col-span-2">
+                            <label htmlFor={notesId} className="mb-2 block text-sm font-medium text-slate-700">
+                                Kiegészítés telefonos vagy helyszíni egyeztetés alapján
                             </label>
-                            <input
-                                id={clientNameId}
-                                value={clientName}
-                                onChange={(event) => onClientNameChange(event.target.value)}
+                            <textarea
+                                id={notesId}
+                                rows={3}
+                                value={additionalNotes}
+                                onChange={(event) => onAdditionalNotesChange(event.target.value)}
                                 disabled={busy}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
-                                placeholder="Ügyfél neve"
+                                className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
+                                placeholder="Például: telefonon egyeztettük a bontást is, a terület 35 m²."
                             />
+                            <p className="mt-1.5 text-xs text-slate-500">
+                                Mira az elemzéskor figyelembe veszi ezt a szöveget.
+                            </p>
                         </div>
-                        <div className="flex items-end">
-                            <label htmlFor={includeNotesId} className="flex items-start gap-2.5 text-sm text-slate-700">
+                    )}
+
+                    {draftId && (
+                        <>
+                            <div>
+                                <label htmlFor={clientNameId} className="mb-2 block text-sm font-medium text-slate-700">
+                                    Ügyfél neve
+                                </label>
                                 <input
-                                    id={includeNotesId}
-                                    type="checkbox"
-                                    checked={includeAdditionalNotes}
-                                    onChange={(event) => onIncludeAdditionalNotesChange(event.target.checked)}
+                                    id={clientNameId}
+                                    value={clientName}
+                                    onChange={(event) => onClientNameChange(event.target.value)}
                                     disabled={busy}
-                                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
+                                    placeholder="Ügyfél neve"
                                 />
-                                <span>Jelenjen meg a kiegészítés az ajánlatban</span>
-                            </label>
-                        </div>
-                    </>
-                )}
-            </div>
+                            </div>
+                            {setupReady && (
+                                <div className="flex items-end">
+                                    <label htmlFor={includeNotesId} className="flex items-start gap-2.5 text-sm text-slate-700">
+                                        <input
+                                            id={includeNotesId}
+                                            type="checkbox"
+                                            checked={includeAdditionalNotes}
+                                            onChange={(event) => onIncludeAdditionalNotesChange(event.target.checked)}
+                                            disabled={busy}
+                                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                                        />
+                                        <span>Jelenjen meg a kiegészítés az ajánlatban</span>
+                                    </label>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
 
             {draftId && (!analysisFresh || coverageItems.length > 0 || coverageWarnings.length > 0 || reviewWarnings.length > 0) && (
                 <section id="quote-coverage"

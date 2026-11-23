@@ -137,8 +137,9 @@ CREATE TABLE company_profiles
     tax_regime     VARCHAR(32)  NOT NULL DEFAULT 'AAM',
     vat_rate       NUMERIC(5, 2),
     offer_terms    TEXT         DEFAULT (
-        'Jelen árajánlat a kiküldéstől számított 15 napig érvényes.' || E'\n\n' ||
-        'A megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot a helyszíni felmérést követően rögzítjük.'),
+        'Ajánlatunk a megküldéstől számított 15 naptári napig érvényes.' || E'\n\n' ||
+        'Az ajánlatot a rendelkezésünkre bocsátott információk, a megadott mennyiségek és az ismert műszaki követelmények alapján állítottuk össze.' || E'\n\n' ||
+        'A helyszíni adottságok, a tényleges mennyiségek vagy a műszaki tartalom változása esetén az ajánlat módosítása válhat szükségessé. Az esetleges változásokat a kivitelezés megkezdése előtt egyeztetjük a megrendelővel.'),
     CONSTRAINT company_profiles_tax_regime_check
         CHECK (tax_regime IN ('AAM', 'VAT_REGISTERED', 'REVERSE_CHARGE_UNSUPPORTED')),
     CONSTRAINT company_profiles_vat_rate_check

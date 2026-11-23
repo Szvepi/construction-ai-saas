@@ -579,7 +579,8 @@ export default function CatalogSettingsPage() {
                                             Belső költségek (opcionális)
                                         </summary>
                                         <p className="mt-2 text-sm text-slate-600">
-                                            Ezek az adatok a saját költségeid és árrésed követésére szolgálnak. Az ügyfélnek
+                                            Ezek az adatok a saját költségeid és profitod követésére szolgálnak. Az
+                                            ügyfélnek
                                             felszámított ár a nettó eladási egységár.
                                         </p>
                                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -684,7 +685,7 @@ export default function CatalogSettingsPage() {
                                 </div>
                                 <div className="mt-4 border-t border-blue-100 pt-4 text-xs leading-5 text-slate-600">
                                     <p>
-                                        Ez csak szemléltető szorzás; az ajánlat tényleges mennyiségét és kalkulációját
+                                        Ez csak szemléltető szorzás. Az ajánlat tényleges mennyiségét és kalkulációját
                                         nem módosítja.
                                     </p>
                                     <p className="mt-2">

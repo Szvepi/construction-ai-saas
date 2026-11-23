@@ -16,6 +16,8 @@ import com.buildassist.repository.EmailRepository.CategoryCount;
 import com.buildassist.repository.EmailRepository.SearchRow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
@@ -346,36 +348,61 @@ public class EmailService {
             return "";
         }
 
-        // Try to get the body from the part
-        JsonNode body = payload.get("body");
-        if (body != null && body.has("data")) {
-            String data = body.get("data").asText();
-            try {
-                return new String(java.util.Base64.getUrlDecoder().decode(data), StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException e) {
-                return data;
-            }
+        String plainText = findMimeBody(payload, "text/plain");
+        if (!plainText.isBlank()) {
+            return plainText;
         }
 
-        // If multipart, try to get text/plain part
-        JsonNode parts = payload.get("parts");
-        if (parts != null && parts.isArray()) {
-            for (JsonNode part : parts) {
-                String mimeType = part.get("mimeType").asText("");
-                if ("text/plain".equals(mimeType)) {
-                    JsonNode partBody = part.get("body");
-                    if (partBody != null && partBody.has("data")) {
-                        String data = partBody.get("data").asText();
-                        try {
-                            return new String(java.util.Base64.getUrlDecoder().decode(data), StandardCharsets.UTF_8);
-                        } catch (IllegalArgumentException e) {
-                            return data;
-                        }
-                    }
+        String html = findMimeBody(payload, "text/html");
+        if (html.isBlank()) {
+            return "";
+        }
+
+        Document document = Jsoup.parse(html);
+        document.select("script, style").remove();
+        document.select("br").before("\n");
+        document.select("p, div, li, blockquote, h1, h2, h3, h4, h5, h6, tr").before("\n");
+        return document.body().wholeText()
+                .replace('\u00a0', ' ')
+                .replaceAll("[\\t\\x0B\\f\\r ]+", " ")
+                .replaceAll(" *\\n *", "\n")
+                .replaceAll("\\n{2,}", "\n")
+                .trim();
+    }
+
+    private String findMimeBody(JsonNode part, String mimeType) {
+        if (part == null || !part.isObject()
+                || !part.path("filename").asText("").isBlank()
+                || !part.path("body").path("attachmentId").asText("").isBlank()) {
+            return "";
+        }
+
+        String partMimeType = part.path("mimeType").asText("");
+        int mimeTypeParameters = partMimeType.indexOf(';');
+        if (mimeTypeParameters >= 0) {
+            partMimeType = partMimeType.substring(0, mimeTypeParameters).trim();
+        }
+        if (mimeType.equalsIgnoreCase(partMimeType)
+                || (partMimeType.isBlank() && "text/plain".equals(mimeType))) {
+            String data = part.path("body").path("data").asText("");
+            if (!data.isBlank()) {
+                try {
+                    return new String(java.util.Base64.getUrlDecoder().decode(data), StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException e) {
+                    return data;
                 }
             }
         }
 
+        JsonNode parts = part.path("parts");
+        if (parts.isArray()) {
+            for (JsonNode child : parts) {
+                String body = findMimeBody(child, mimeType);
+                if (!body.isBlank()) {
+                    return body;
+                }
+            }
+        }
         return "";
     }
 }

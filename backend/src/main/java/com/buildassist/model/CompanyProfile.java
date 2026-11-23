@@ -1,18 +1,11 @@
 package com.buildassist.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.Table;
-import java.math.BigDecimal;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -22,9 +15,11 @@ import lombok.Setter;
 public class CompanyProfile {
 
     public static final String DEFAULT_OFFER_TERMS = """
-            Jelen árajánlat a kiküldéstől számított 15 napig érvényes.
-
-            A megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot a helyszíni felmérést követően rögzítjük.
+            Ajánlatunk a megküldéstől számított 15 naptári napig érvényes.
+            
+            Az ajánlatot a rendelkezésünkre bocsátott információk, a megadott mennyiségek és az ismert műszaki követelmények alapján állítottuk össze.
+            
+            A helyszíni adottságok, a tényleges mennyiségek vagy a műszaki tartalom változása esetén az ajánlat módosítása válhat szükségessé. Az esetleges változásokat a kivitelezés megkezdése előtt egyeztetjük a megrendelővel.
             """.strip();
 
     @Id

@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 import {AsYouType} from "libphonenumber-js";
 import {DashboardLayout} from "@/components/layout/DashboardLayout";
@@ -9,7 +9,10 @@ import {ApiError, apiFetch} from "@/lib/api";
 import {isAuthenticated} from "@/lib/auth";
 import type {CompanyProfile, SaveCompanyProfileRequest} from "@/lib/types";
 
-type FormData = SaveCompanyProfileRequest & Pick<CompanyProfile, "contactEmail">;
+type FormData = SaveCompanyProfileRequest & Pick<CompanyProfile, "contactEmail"> & {
+    legalFormSelection: string;
+    vatRateSelection: string;
+};
 
 type TextFieldProps = {
     label: string;
@@ -27,6 +30,8 @@ type TextFieldProps = {
 const EMPTY_FORM: FormData = {
     companyName: "",
     legalForm: "",
+    legalFormSelection: "",
+    vatRateSelection: "",
     taxNumber: "",
     contactEmail: "",
     euTaxNumber: "",
@@ -44,8 +49,29 @@ const EMPTY_FORM: FormData = {
     vatRegistered: false,
     taxRegime: "AAM",
     vatRate: null,
-    offerTerms: "Jelen árajánlat a kiküldéstől számított 15 napig érvényes.\n\nA megadott árak a levélben leírt paraméterek alapján számított tájékoztató jellegű becslések. A végleges árajánlatot a helyszíni felmérést követően rögzítjük.",
+    offerTerms: "Ajánlatunk a megküldéstől számított 15 naptári napig érvényes.\n" +
+        "\n" +
+        "Az ajánlatot a rendelkezésünkre bocsátott információk, a megadott mennyiségek és az ismert műszaki követelmények alapján állítottuk össze.\n" +
+        "\n" +
+        "A helyszíni adottságok, a tényleges mennyiségek vagy a műszaki tartalom változása esetén az ajánlat módosítása válhat szükségessé. Az esetleges változásokat a kivitelezés megkezdése előtt egyeztetjük a megrendelővel.",
 };
+
+const LEGAL_FORM_OPTIONS = [
+    "Kft.",
+    "Bt.",
+    "Kkt.",
+    "Zrt.",
+    "Nyrt.",
+    "Egyéni vállalkozó",
+    "Egyéni cég",
+    "Szövetkezet",
+    "Egyesület",
+    "Alapítvány",
+    "Nonprofit Kft.",
+    "Nonprofit Zrt.",
+];
+
+const VAT_RATE_OPTIONS = [5, 18, 27];
 
 function TextField({
                        label,
@@ -114,13 +140,17 @@ export default function CompanySettingsPage() {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saved, setSaved] = useState(false);
+    const errorRef = useRef<HTMLDivElement>(null);
 
     const loadProfile = useCallback(async () => {
         try {
             const profile = await apiFetch<CompanyProfile>("/api/company-settings");
+            const legalForm = profile.legalForm ?? "";
+            const vatRate = profile.vatRate ?? null;
             setFormData({
                 companyName: profile.companyName ?? "",
-                legalForm: profile.legalForm ?? "",
+                legalForm,
+                legalFormSelection: LEGAL_FORM_OPTIONS.includes(legalForm) ? legalForm : legalForm ? "OTHER" : "",
                 taxNumber: formatSavedTaxNumber(profile.taxNumber ?? ""),
                 contactEmail: profile.contactEmail ?? "",
                 euTaxNumber: profile.euTaxNumber ?? "",
@@ -137,7 +167,10 @@ export default function CompanySettingsPage() {
                 door: profile.door ?? "",
                 vatRegistered: profile.vatRegistered ?? false,
                 taxRegime: profile.taxRegime ?? (profile.vatRegistered ? "VAT_REGISTERED" : "AAM"),
-                vatRate: profile.vatRate ?? null,
+                vatRate,
+                vatRateSelection: vatRate == null
+                    ? ""
+                    : VAT_RATE_OPTIONS.includes(vatRate) ? String(vatRate) : "OTHER",
                 offerTerms: profile.offerTerms ?? "",
             });
             setError(null);
@@ -158,6 +191,15 @@ export default function CompanySettingsPage() {
         loadProfile().finally(() => setLoading(false));
     }, [router, loadProfile]);
 
+    useEffect(() => {
+        if (!error) {
+            return;
+        }
+
+        errorRef.current?.scrollIntoView({behavior: "smooth", block: "center"});
+        errorRef.current?.focus({preventScroll: true});
+    }, [error]);
+
     const updateField = (field: keyof FormData, value: string) => {
         setFormData((current) => ({...current, [field]: value}));
         setSaved(false);
@@ -170,7 +212,12 @@ export default function CompanySettingsPage() {
         setSaved(false);
 
         try {
-            const {contactEmail: _contactEmail, ...request}: FormData = formData;
+            const {
+                contactEmail: _contactEmail,
+                legalFormSelection: _legalFormSelection,
+                vatRateSelection: _vatRateSelection,
+                ...request
+            }: FormData = formData;
             const savedProfile = await apiFetch<CompanyProfile>("/api/company-settings", {
                 method: "PUT",
                 body: request,
@@ -186,7 +233,9 @@ export default function CompanySettingsPage() {
                 router.push("/auth/login");
                 return;
             }
-            setError(err instanceof ApiError ? err.message : "A céges adatok mentése sikertelen.");
+            setError(err instanceof ApiError
+                ? `A mentés nem sikerült: ${err.message}`
+                : "A céges adatok mentése sikertelen.");
         } finally {
             setSubmitting(false);
         }
@@ -206,17 +255,6 @@ export default function CompanySettingsPage() {
                     </p>
                 </div>
 
-                {error && (
-                    <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
-                        {error}
-                    </div>
-                )}
-                {saved && (
-                    <div className="rounded-md bg-green-50 p-4 text-sm text-green-700">
-                        A céges adatok mentése sikerült.
-                    </div>
-                )}
-
                 {loading ? (
                     <div className="text-center text-slate-500">Céges adatok betöltése…</div>
                 ) : (
@@ -230,12 +268,38 @@ export default function CompanySettingsPage() {
                                     required
                                     onChange={(value) => updateField("companyName", value)}
                                 />
-                                <TextField
-                                    label="Cégforma"
-                                    value={formData.legalForm}
-                                    required
-                                    onChange={(value) => updateField("legalForm", value)}
-                                />
+                                <label className="block text-sm font-medium text-slate-700">
+                                    Cégforma *
+                                    <select
+                                        value={formData.legalFormSelection}
+                                        required
+                                        onChange={(event) => {
+                                            const legalFormSelection = event.target.value;
+                                            setFormData((current) => ({
+                                                ...current,
+                                                legalFormSelection,
+                                                legalForm: legalFormSelection === "OTHER" ? "" : legalFormSelection,
+                                            }));
+                                            setSaved(false);
+                                        }}
+                                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    >
+                                        <option value="">Válassz cégformát</option>
+                                        {LEGAL_FORM_OPTIONS.map((legalForm) => (
+                                            <option key={legalForm} value={legalForm}>{legalForm}</option>
+                                        ))}
+                                        <option value="OTHER">Egyéb</option>
+                                    </select>
+                                </label>
+                                {formData.legalFormSelection === "OTHER" && (
+                                    <TextField
+                                        label="Egyéb cégforma"
+                                        value={formData.legalForm}
+                                        required
+                                        placeholder="Add meg a cégformát"
+                                        onChange={(value) => updateField("legalForm", value)}
+                                    />
+                                )}
                                 <TextField
                                     label="Adószám"
                                     value={formData.taxNumber}
@@ -243,7 +307,7 @@ export default function CompanySettingsPage() {
                                     placeholder="12345676-1-42"
                                     maxLength={13}
                                     inputMode="numeric"
-                                    helperText="A belföldi adószám 8-1-2 számjegyű. A HU előtagú közösségi adószámot külön add meg."
+                                    // helperText="A belföldi adószám 8-1-2 számjegyű."
                                     onChange={(value) => updateField("taxNumber", formatTaxNumberInput(value))}
                                 />
                                 <TextField
@@ -254,6 +318,7 @@ export default function CompanySettingsPage() {
                                 <TextField
                                     label="Ajánlatadó neve"
                                     value={formData.offerorName}
+                                    helperText="Kitöltésével az ajánlaton megjelenik az ajánlatért felelős kapcsolattartó neve."
                                     onChange={(value) => updateField("offerorName", value)}
                                 />
                                 <TextField
@@ -271,7 +336,7 @@ export default function CompanySettingsPage() {
                                     value={formData.contactEmail}
                                     readOnly
                                     inputType="email"
-                                    helperText="A Google-fiók e-mail-címe; az ajánlaton is megjelenik."
+                                    helperText="Az ajánlaton is megjelenik."
                                 />
                                 <label className="block text-sm font-medium text-slate-700">
                                     Adózási mód
@@ -284,36 +349,69 @@ export default function CompanySettingsPage() {
                                                 taxRegime,
                                                 vatRegistered: taxRegime === "VAT_REGISTERED",
                                                 vatRate: taxRegime === "VAT_REGISTERED" ? current.vatRate : null,
+                                                vatRateSelection: taxRegime === "VAT_REGISTERED"
+                                                    ? current.vatRateSelection
+                                                    : "",
                                             }));
                                             setSaved(false);
                                         }}
                                         className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
                                     >
                                         <option value="AAM">Alanyi adómentes (AAM)</option>
-                                        <option value="VAT_REGISTERED">ÁFA felszámítására kötelezett</option>
+                                        <option value="VAT_REGISTERED">ÁFA-körös</option>
                                         {/*<option value="REVERSE_CHARGE_UNSUPPORTED">Fordított adózás (jelenleg nem támogatott)</option>*/}
                                     </select>
                                 </label>
                                 {formData.taxRegime === "VAT_REGISTERED" && (
-                                    <label className="block text-sm font-medium text-slate-700">
-                                        ÁFA-kulcs (%)
-                                        <input
-                                            type="number" min="0.01" max="100" step="0.01" required
-                                            value={formData.vatRate ?? ""}
-                                            onChange={(event) => {
-                                                const value = event.target.value;
-                                                setFormData((current) => ({
-                                                    ...current,
-                                                    vatRate: value === "" ? null : Number(value),
-                                                }));
-                                                setSaved(false);
-                                            }}
-                                            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
-                                        />
-                                        <span className="mt-1 block font-normal text-slate-500">
-                                            Az ajánlatban szereplő katalógusárak nettó árak; az itt megadott kulcs alapján számolunk.
-                                        </span>
-                                    </label>
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium text-slate-700">
+                                            ÁFA-kulcs (%)
+                                            <select
+                                                value={formData.vatRateSelection}
+                                                required
+                                                onChange={(event) => {
+                                                    const vatRateSelection = event.target.value;
+                                                    setFormData((current) => ({
+                                                        ...current,
+                                                        vatRateSelection,
+                                                        vatRate: vatRateSelection === "OTHER"
+                                                            ? null
+                                                            : vatRateSelection ? Number(vatRateSelection) : null,
+                                                    }));
+                                                    setSaved(false);
+                                                }}
+                                                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                                            >
+                                                <option value="">Válassz ÁFA-kulcsot</option>
+                                                {VAT_RATE_OPTIONS.map((rate) => (
+                                                    <option key={rate} value={rate}>{rate}%</option>
+                                                ))}
+                                                <option value="OTHER">Egyéb</option>
+                                            </select>
+                                        </label>
+                                        {formData.vatRateSelection === "OTHER" && (
+                                            <label className="block text-sm font-medium text-slate-700">
+                                                Egyedi ÁFA-kulcs (%)
+                                                <input
+                                                    type="number" min="0.01" max="100" step="0.01" required
+                                                    value={formData.vatRate ?? ""}
+                                                    onChange={(event) => {
+                                                        const value = event.target.value;
+                                                        setFormData((current) => ({
+                                                            ...current,
+                                                            vatRate: value === "" ? null : Number(value),
+                                                        }));
+                                                        setSaved(false);
+                                                    }}
+                                                    className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
+                                                />
+                                            </label>
+                                        )}
+                                        <p className="text-xs font-normal text-slate-500">
+                                            Az ajánlatban szereplő katalógusárak nettó árak. Az itt megadott kulcs
+                                            alapján számolunk.
+                                        </p>
+                                    </div>
                                 )}
                             </div>
                         </section>
@@ -393,9 +491,31 @@ export default function CompanySettingsPage() {
                             </p>
                         </section>
 
-                        <Button type="submit" disabled={submitting}>
-                            {submitting ? "Mentés…" : "Céges adatok mentése"}
-                        </Button>
+                        <div className="space-y-3">
+                            {error && (
+                                <div
+                                    ref={errorRef}
+                                    role="alert"
+                                    aria-live="assertive"
+                                    tabIndex={-1}
+                                    className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                >
+                                    {error}
+                                </div>
+                            )}
+                            {saved && (
+                                <div
+                                    role="status"
+                                    aria-live="polite"
+                                    className="rounded-md bg-green-50 p-4 text-sm text-green-700"
+                                >
+                                    A céges adatok mentése sikerült.
+                                </div>
+                            )}
+                            <Button type="submit" disabled={submitting}>
+                                {submitting ? "Mentés…" : "Céges adatok mentése"}
+                            </Button>
+                        </div>
                     </form>
                 )}
             </main>
