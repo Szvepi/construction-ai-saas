@@ -2,6 +2,7 @@ package com.buildassist.service;
 
 import com.buildassist.calculation.CalculationStatus;
 import com.buildassist.calculation.DraftQuoteSnapshot;
+import com.buildassist.calculation.InputSource;
 import com.buildassist.calculation.WorkRecognitionStatus;
 import com.buildassist.dto.AiDtos.CoverageDecision;
 import com.buildassist.dto.AiDtos.CoverageResponse;
@@ -83,6 +84,7 @@ public class QuoteCoverageService {
         }
 
         return snapshot.workItems().stream()
+                .filter(work -> work.source() != InputSource.USER_OVERRIDE)
                 .map(work -> evaluateWork(snapshot, work, decisionByWork.get(work.workId())))
                 .toList();
     }

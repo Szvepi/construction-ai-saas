@@ -27,8 +27,8 @@ function formatDate(value: string): string {
 
 export function EmailSourcePanel({email}: Props) {
     return (
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02]">
-            <div className="border-b border-slate-100 p-5 sm:p-6">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-900/[0.02] xl:sticky xl:top-20 xl:flex xl:max-h-[calc(100vh-7rem)] xl:flex-col">
+            <div className="shrink-0 border-b border-slate-100 p-5 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                         {CATEGORY_LABELS[email.category]}
@@ -52,9 +52,9 @@ export function EmailSourcePanel({email}: Props) {
                     </div>
                 </div>
             </div>
-            <div className="p-5 sm:p-6">
+            <div className="p-5 sm:p-6 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Levél tartalma</h2>
-                <div className="mt-3 max-h-[min(68vh,800px)] overflow-y-auto overscroll-contain">
+                <div className="mt-3 max-h-[min(68vh,800px)] overflow-y-auto overscroll-contain xl:max-h-none xl:overflow-visible">
                     <pre className="max-w-full whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
                         {email.bodyText || "A levél nem tartalmaz megjeleníthető szöveget."}
                     </pre>

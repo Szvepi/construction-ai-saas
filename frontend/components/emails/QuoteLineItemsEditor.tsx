@@ -1,5 +1,6 @@
 import {useState} from "react";
 import type {CatalogItemType, DraftLineItem, DraftQuoteSnapshot} from "@/lib/types";
+import {InfoIcon} from "@/components/ui/InfoIcon";
 
 type Props = {
     lineItems: DraftLineItem[];
@@ -30,6 +31,29 @@ function formatCurrency(value: number | null): string {
         : `${new Intl.NumberFormat("hu-HU", {maximumFractionDigits: 0}).format(value)} Ft`;
 }
 
+function formatQuantityUnit(unit: string): string {
+    const labels: Record<string, string> = {
+        MILLIMETER: "mm",
+        CENTIMETER: "cm",
+        METER: "m",
+        SQUARE_METER: "m²",
+        CUBIC_METER: "m³",
+        LITER: "l",
+        SQUARE_METER_PER_LITER: "m²/l",
+        EACH: "db",
+        PERCENT: "%",
+        SCALAR: "",
+        KILOGRAM: "kg",
+        HOUR: "óra",
+    };
+    return labels[unit] ?? unit;
+}
+
+function formatQuantity(value: number, unit: string): string {
+    const formattedUnit = formatQuantityUnit(unit);
+    return `${value}${formattedUnit ? ` ${formattedUnit}` : ""}`;
+}
+
 function parameterLabel(id: string): string {
     const labels: Record<string, string> = {
         thickness: "Rétegvastagság",
@@ -46,19 +70,19 @@ function parameterLabel(id: string): string {
 }
 
 export function QuoteLineItemsEditor({
-    lineItems,
-    quoteSnapshot,
-    busy,
-    onUpdateQuantity,
-    onUpdateUnitPrice,
-    onUpdatePriceReason,
-    onUpdateParameter,
-    onApproveAssumptions,
-    onRejectAssumption,
-    onAddManualLine,
-    onUpdateManualLine,
-    onDeleteLine,
-}: Props) {
+                                         lineItems,
+                                         quoteSnapshot,
+                                         busy,
+                                         onUpdateQuantity,
+                                         onUpdateUnitPrice,
+                                         onUpdatePriceReason,
+                                         onUpdateParameter,
+                                         onApproveAssumptions,
+                                         onRejectAssumption,
+                                         onAddManualLine,
+                                         onUpdateManualLine,
+                                         onDeleteLine,
+                                     }: Props) {
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [manualName, setManualName] = useState("");
     const [manualQuantity, setManualQuantity] = useState("1");
@@ -71,72 +95,23 @@ export function QuoteLineItemsEditor({
     } | null>(null);
 
     return (
-        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
+        <section
+            id="quote-lines"
+            className="scroll-mt-24 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
             <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ajánlati tartalom</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ajánlat részletei</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-900">Munkák és ajánlati sorok</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                    A katalógus ára nem változik. Az itt megadott egyedi ár csak erre az ajánlatra érvényes.
-                </p>
-            </div>
-
-            <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-800">Egyszeri tétel hozzáadása</summary>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    <label className="text-xs font-medium text-slate-600">Megnevezés
-                        <input value={manualName} onChange={(event) => setManualName(event.target.value)}
-                               disabled={busy} className={`${inputClassName} mt-1`} />
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">Kapcsolódó munkafázis
-                        <select value={manualWorkId} onChange={(event) => setManualWorkId(event.target.value)}
-                                disabled={busy} className={`${inputClassName} mt-1`}>
-                            <option value="">Önálló tétel</option>
-                            {quoteSnapshot?.workItems.map((work) => (
-                                <option key={work.workId} value={work.workId}>{work.originalRequest}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">Tétel típusa
-                        <select value={manualType} onChange={(event) => setManualType(event.target.value as CatalogItemType)}
-                                disabled={busy} className={`${inputClassName} mt-1`}>
-                            <option value="MATERIAL">Anyag</option>
-                            <option value="LABOR">Munkadíj</option>
-                            <option value="OTHER">Egyéb díj</option>
-                            <option value="COMBINED">Anyag és munkadíj együtt</option>
-                        </select>
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">Mennyiség
-                        <input type="number" min="0.01" step="any" value={manualQuantity}
-                               onChange={(event) => setManualQuantity(event.target.value)}
-                               disabled={busy} className={`${inputClassName} mt-1`} />
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">Mértékegység
-                        <input value={manualUnit} onChange={(event) => setManualUnit(event.target.value)}
-                               disabled={busy} placeholder="db, m, m2, m3..."
-                               className={`${inputClassName} mt-1`} />
-                    </label>
-                    <label className="text-xs font-medium text-slate-600">Nettó egységár (Ft)
-                        <input type="number" min="0.01" step="any" value={manualPrice}
-                               onChange={(event) => setManualPrice(event.target.value)}
-                               disabled={busy} className={`${inputClassName} mt-1`} />
-                    </label>
+                <div
+                    className="mt-3 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-slate-700 sm:px-4">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                        <InfoIcon className="h-4 w-4 text-[10px] text-blue-600"/>
+                    </span>
+                    <p className="pt-0.5">
+                        Az ajánlatban módosított ár csak erre az ajánlatra érvényes. A katalógusban szereplő ár
+                        változatlan marad.
+                    </p>
                 </div>
-                <button type="button" disabled={busy || !manualName.trim()
-                    || Number(manualQuantity) <= 0 || Number(manualPrice) <= 0 || !manualUnit.trim()}
-                        onClick={() => {
-                            onAddManualLine({
-                                name: manualName, quantity: Number(manualQuantity), unit: manualUnit,
-                                netUnitPrice: Number(manualPrice), itemType: manualType,
-                                workId: manualWorkId || undefined,
-                            });
-                            setManualName("");
-                            setManualQuantity("1");
-                            setManualPrice("");
-                        }}
-                        className="mt-3 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                    Tétel hozzáadása
-                </button>
-            </details>
+            </div>
 
             {lineItems.length === 0 ? (
                 <div className="mt-5 rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center">
@@ -169,10 +144,10 @@ export function QuoteLineItemsEditor({
                                         {work && <p className="mt-1 text-sm text-slate-600">{work.originalRequest}</p>}
                                         <p className="mt-1 text-xs text-slate-500">
                                             {originalQuantity
-                                                ? `Kiinduló számított mennyiség: ${originalQuantity.value} ${originalQuantity.unit}`
+                                                ? `Kiinduló számított mennyiség: ${formatQuantity(originalQuantity.value, originalQuantity.unit)}`
                                                 : "A mennyiség a hiányzó adatok megadása után számítható ki"}
                                             {calculatedQuantity && line?.userOverrideQuantity
-                                                ? ` · Ajánlati mennyiség: ${calculatedQuantity.value} ${calculatedQuantity.unit}`
+                                                ? ` · Ajánlati mennyiség: ${formatQuantity(calculatedQuantity.value, calculatedQuantity.unit)}`
                                                 : ""}
                                         </p>
                                     </div>
@@ -189,11 +164,18 @@ export function QuoteLineItemsEditor({
                                     </span>
                                 </div>
 
-                                {line?.explanation && (
+                                {line?.explanation && item.userOverrideLine ? (
+                                    <div role="note" className="mt-3 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-slate-700">
+                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                                            <InfoIcon className="h-4 w-4 text-[10px] text-blue-600"/>
+                                        </span>
+                                        <p className="pt-0.5">{line.explanation}</p>
+                                    </div>
+                                ) : line?.explanation ? (
                                     <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
                                         {line.explanation}
                                     </p>
-                                )}
+                                ) : null}
                                 {line?.calculationResult.issues.map((issue, issueIndex) => (
                                     <p key={`${issue.code}-${issueIndex}`}
                                        className="mt-2 text-sm font-medium text-amber-800">{issue.message}</p>
@@ -231,13 +213,19 @@ export function QuoteLineItemsEditor({
                                         {item.priceOverridden && (
                                             <>
                                                 <span className="mt-1 block text-amber-800">Egyedi ár alkalmazva</span>
-                                                <input
-                                                    aria-label={`Egyedi ár indoklása ${item.name}`}
-                                                    value={item.priceOverrideReason ?? ""}
-                                                    onChange={(event) => onUpdatePriceReason(index, event.target.value)}
-                                                    placeholder="Az egyedi ár rövid indoka"
-                                                    className={`${inputClassName} mt-1`}
-                                                />
+                                                {item.userOverrideLine ? (
+                                                    <span className="mt-1 block text-slate-500">
+                                                        Kézzel megadott ajánlati ár
+                                                    </span>
+                                                ) : (
+                                                    <input
+                                                        aria-label={`Egyedi ár indoklása ${item.name}`}
+                                                        value={item.priceOverrideReason ?? ""}
+                                                        onChange={(event) => onUpdatePriceReason(index, event.target.value)}
+                                                        placeholder="Az egyedi ár rövid indoka"
+                                                        className={`${inputClassName} mt-1`}
+                                                    />
+                                                )}
                                             </>
                                         )}
                                         {!item.priceOverridden && item.catalogUnitPrice != null && (
@@ -284,11 +272,15 @@ export function QuoteLineItemsEditor({
                                         {editingThisLine && (
                                             <div className="basis-full grid gap-2 sm:grid-cols-2">
                                                 <input aria-label="Kézi tétel megnevezése" value={editingThisLine.name}
-                                                       onChange={(event) => setEditingManual({...editingThisLine, name: event.target.value})}
-                                                       className={inputClassName} />
+                                                       onChange={(event) => setEditingManual({
+                                                           ...editingThisLine,
+                                                           name: event.target.value
+                                                       })}
+                                                       className={inputClassName}/>
                                                 <select aria-label="Kézi tétel típusa" value={editingThisLine.itemType}
                                                         onChange={(event) => setEditingManual({
-                                                            ...editingThisLine, itemType: event.target.value as CatalogItemType,
+                                                            ...editingThisLine,
+                                                            itemType: event.target.value as CatalogItemType,
                                                         })} className={inputClassName}>
                                                     <option value="MATERIAL">Anyag</option>
                                                     <option value="LABOR">Munkadíj</option>
@@ -297,15 +289,25 @@ export function QuoteLineItemsEditor({
                                                 </select>
                                                 <input aria-label="Kézi tétel mennyisége" type="number" min="0.01"
                                                        value={editingThisLine.quantity}
-                                                       onChange={(event) => setEditingManual({...editingThisLine, quantity: event.target.value})}
-                                                       className={inputClassName} />
-                                                <input aria-label="Kézi tétel mértékegysége" value={editingThisLine.unit}
-                                                       onChange={(event) => setEditingManual({...editingThisLine, unit: event.target.value})}
-                                                       className={inputClassName} />
+                                                       onChange={(event) => setEditingManual({
+                                                           ...editingThisLine,
+                                                           quantity: event.target.value
+                                                       })}
+                                                       className={inputClassName}/>
+                                                <input aria-label="Kézi tétel mértékegysége"
+                                                       value={editingThisLine.unit}
+                                                       onChange={(event) => setEditingManual({
+                                                           ...editingThisLine,
+                                                           unit: event.target.value
+                                                       })}
+                                                       className={inputClassName}/>
                                                 <input aria-label="Kézi tétel nettó egységára" type="number" min="0.01"
                                                        value={editingThisLine.price}
-                                                       onChange={(event) => setEditingManual({...editingThisLine, price: event.target.value})}
-                                                       className={inputClassName} />
+                                                       onChange={(event) => setEditingManual({
+                                                           ...editingThisLine,
+                                                           price: event.target.value
+                                                       })}
+                                                       className={inputClassName}/>
                                                 <button type="button" disabled={busy || !editingThisLine.name.trim()
                                                     || Number(editingThisLine.quantity) <= 0
                                                     || Number(editingThisLine.price) <= 0}
@@ -330,7 +332,8 @@ export function QuoteLineItemsEditor({
                                 {item.calculationParameters?.some((parameter) =>
                                     parameter.source === "AI_ASSUMPTION" || parameter.value == null) && (
                                     <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
-                                        <p className="text-sm font-semibold text-amber-950">Kalkulációs adatok ellenőrzése</p>
+                                        <p className="text-sm font-semibold text-amber-950">Kalkulációs adatok
+                                            ellenőrzése</p>
                                         <div className="mt-2 grid gap-3 sm:grid-cols-2">
                                             {item.calculationParameters.map((parameter, parameterIndex) => (
                                                 <label key={parameter.id}
@@ -376,7 +379,8 @@ export function QuoteLineItemsEditor({
                                                     Feltételezés elutasítása: {parameterLabel(parameter.id)}
                                                 </button>
                                             ) : parameter.rejected ? (
-                                                <p key={`rejected-${parameter.id}`} className="mt-2 text-xs text-rose-800">
+                                                <p key={`rejected-${parameter.id}`}
+                                                   className="mt-2 text-xs text-rose-800">
                                                     Elutasított feltételezés; adj meg tényleges értéket.
                                                 </p>
                                             ) : null)}
@@ -394,7 +398,7 @@ export function QuoteLineItemsEditor({
                                                     {step.operation === "AREA" ? "Terület" : step.operation === "VOLUME"
                                                         ? "Térfogat" : step.operation === "PERIMETER"
                                                             ? "Kerület" : "Mennyiség"}
-                                                    {step.result ? `: ${step.result.value} ${step.result.unit}` : ""}
+                                                    {step.result ? `: ${formatQuantity(step.result.value, step.result.unit)}` : ""}
                                                 </li>
                                             ))}
                                         </ol>
@@ -405,6 +409,77 @@ export function QuoteLineItemsEditor({
                     })}
                 </div>
             )}
+
+            <details className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">Egyszeri tétel hozzáadása
+                </summary>
+                <div
+                    className="mt-3 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-slate-700 sm:px-4">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                        <InfoIcon className="h-4 w-4 text-[10px] text-blue-600"/>
+                    </span>
+                    <p className="pt-0.5">
+                        Itt olyan munkát, anyagot vagy egyéb díjat adhatsz az ajánlathoz, amely még nem szerepel a
+                        tételek között. A felvett tétel csak ehhez az ajánlathoz kerül hozzá, az árjegyzéked nem
+                        változik.
+                    </p>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <label className="text-xs font-medium text-slate-600">Megnevezés
+                        <input value={manualName} onChange={(event) => setManualName(event.target.value)}
+                               disabled={busy} className={`${inputClassName} mt-1`}/>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">Kapcsolódó munkafázis
+                        <select value={manualWorkId} onChange={(event) => setManualWorkId(event.target.value)}
+                                disabled={busy} className={`${inputClassName} mt-1`}>
+                            <option value="">Önálló tétel</option>
+                            {quoteSnapshot?.workItems.map((work) => (
+                                <option key={work.workId} value={work.workId}>{work.originalRequest}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">Tétel típusa
+                        <select value={manualType}
+                                onChange={(event) => setManualType(event.target.value as CatalogItemType)}
+                                disabled={busy} className={`${inputClassName} mt-1`}>
+                            <option value="MATERIAL">Anyag</option>
+                            <option value="LABOR">Munkadíj</option>
+                            <option value="OTHER">Egyéb díj</option>
+                            <option value="COMBINED">Anyag és munkadíj együtt</option>
+                        </select>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">Mennyiség
+                        <input type="number" min="0.01" step="any" value={manualQuantity}
+                               onChange={(event) => setManualQuantity(event.target.value)}
+                               disabled={busy} className={`${inputClassName} mt-1`}/>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">Mértékegység
+                        <input value={manualUnit} onChange={(event) => setManualUnit(event.target.value)}
+                               disabled={busy} placeholder="db, m, m2, m3..."
+                               className={`${inputClassName} mt-1`}/>
+                    </label>
+                    <label className="text-xs font-medium text-slate-600">Nettó egységár (Ft)
+                        <input type="number" min="0.01" step="any" value={manualPrice}
+                               onChange={(event) => setManualPrice(event.target.value)}
+                               disabled={busy} className={`${inputClassName} mt-1`}/>
+                    </label>
+                </div>
+                <button type="button" disabled={busy || !manualName.trim()
+                    || Number(manualQuantity) <= 0 || Number(manualPrice) <= 0 || !manualUnit.trim()}
+                        onClick={() => {
+                            onAddManualLine({
+                                name: manualName, quantity: Number(manualQuantity), unit: manualUnit,
+                                netUnitPrice: Number(manualPrice), itemType: manualType,
+                                workId: manualWorkId || undefined,
+                            });
+                            setManualName("");
+                            setManualQuantity("1");
+                            setManualPrice("");
+                        }}
+                        className="mt-3 rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    Tétel hozzáadása
+                </button>
+            </details>
         </section>
     );
 }

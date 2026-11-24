@@ -13,11 +13,29 @@ function formatCurrency(value: number | null): string {
     return `${new Intl.NumberFormat("hu-HU", {maximumFractionDigits: 0}).format(value)} Ft`;
 }
 
-export function QuoteSummary({netTotal, taxRegime, vatRate, vatAmount, grossTotal, taxConfigurationValid, stale}: Props) {
+export function QuoteSummary({
+                                 netTotal,
+                                 taxRegime,
+                                 vatRate,
+                                 vatAmount,
+                                 grossTotal,
+                                 taxConfigurationValid,
+                                 stale
+                             }: Props) {
+    const invalidVatRate = vatRate == null
+        || !Number.isFinite(vatRate)
+        || vatRate <= 0
+        || vatRate > 100;
+
     return (
-        <section aria-label="Ajánlat összesítése" className="min-w-[190px]">
-            <p className="text-xs font-medium text-slate-500">Szerver által számított ajánlat</p>
-            <p className="mt-1 text-sm text-slate-700">Nettó: {formatCurrency(netTotal)}</p>
+        <section
+            aria-label="Ajánlat összesítése"
+            className="min-w-[190px] rounded-xl border border-slate-200 bg-slate-50 p-3"
+        >
+            <h2 className="mb-2 text-sm font-semibold leading-5 text-slate-800">
+                Az ajánlat összege a jelenlegi tételek alapján
+            </h2>
+            <p className="text-sm text-slate-700">Nettó: {formatCurrency(netTotal)}</p>
             {taxRegime === "VAT_REGISTERED" ? (
                 <>
                     <p className="mt-1 text-sm text-slate-700">
@@ -39,10 +57,11 @@ export function QuoteSummary({netTotal, taxRegime, vatRate, vatAmount, grossTota
                     Ez az adózási mód jelenleg nem támogatott; a véglegesítés le van tiltva.
                 </p>
             )}
-            {!taxConfigurationValid && taxRegime === "VAT_REGISTERED" && (
-                <p className="mt-1 max-w-xs text-xs text-amber-800">Állíts be érvényes ÁFA-kulcsot a céges adatoknál.</p>
+            {!taxConfigurationValid && taxRegime === "VAT_REGISTERED" && invalidVatRate && (
+                <p className="mt-1 max-w-xs text-xs text-amber-800">Állíts be érvényes ÁFA-kulcsot a céges
+                    adatoknál.</p>
             )}
-            {stale && <p className="mt-1 text-xs text-amber-800">Mentés után a szerver újraszámolja az összegeket.</p>}
+            {stale && <p className="mt-1 text-xs text-amber-800">Mentés után Mira újraszámolja az összegeket.</p>}
         </section>
     );
 }

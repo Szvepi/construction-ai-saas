@@ -112,7 +112,7 @@ export default function DashboardPage() {
                 setRefreshStatus("RECONNECT_REQUIRED");
             } else if (err instanceof ApiError && err.status >= 500) {
                 setRefreshStatus("RESUMABLE_ERROR");
-                setRefreshError(`${err.message} A szinkron állapota megőrződött; újrapróbálással folytatható.`);
+                setRefreshError(`${err.message} A szinkron állapota megőrződött. Újrapróbálással folytatható.`);
             } else {
                 setRefreshStatus("FAILED");
             }
@@ -200,7 +200,8 @@ export default function DashboardPage() {
                     </p>
                 )}
                 {refreshError && (
-                    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                    <div role="alert"
+                         className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                         <span>{refreshError}</span>
                         <button
                             type="button"

@@ -2,8 +2,14 @@ import {useEffect, useState} from "react";
 import Link from "next/link";
 import {apiFetch} from "@/lib/api";
 import type {
-    CatalogItem, CoverageStatus, CoverageWarning, CoverageWorkItem, DraftLineItem, DraftQuoteSnapshot,
-    QuoteSetupStatus, WorkMappingPreviewResponse,
+    CatalogItem,
+    CoverageStatus,
+    CoverageWarning,
+    CoverageWorkItem,
+    DraftLineItem,
+    DraftQuoteSnapshot,
+    QuoteSetupStatus,
+    WorkMappingPreviewResponse,
 } from "@/lib/types";
 import {Button} from "@/components/ui/Button";
 
@@ -16,6 +22,7 @@ type Props = {
     reviewWarnings: string[];
     coverageItems: CoverageWorkItem[];
     coverageWarnings: CoverageWarning[];
+    savedCoverageDecisionId: string | null;
     lineItems: DraftLineItem[];
     quoteSnapshot: DraftQuoteSnapshot | null;
     catalogItems: CatalogItem[];
@@ -31,7 +38,7 @@ type Props = {
     onAcknowledgeWarning: (warningId: string, acknowledged: boolean) => void;
     onAddCatalogLine: (
         workId: string, catalogItemId: number, unmappedId: string | null,
-        parameters: {id: string; value: number; unit: string}[]
+        parameters: { id: string; value: number; unit: string }[]
     ) => void;
 };
 
@@ -54,7 +61,7 @@ function CatalogLineMapper({
     busy: boolean;
     onAdd: (
         workId: string, catalogItemId: number, unmappedId: string | null,
-        parameters: {id: string; value: number; unit: string}[]
+        parameters: { id: string; value: number; unit: string }[]
     ) => void;
 }) {
     const [catalogItemId, setCatalogItemId] = useState<number | "">("");
@@ -74,7 +81,9 @@ function CatalogLineMapper({
             setPreview(null);
             setParameterValues({});
             setPreviewError(null);
-            return () => { active = false; };
+            return () => {
+                active = false;
+            };
         }
         setLoadingPreview(true);
         setPreviewError(null);
@@ -96,7 +105,9 @@ function CatalogLineMapper({
         }).finally(() => {
             if (active) setLoadingPreview(false);
         });
-        return () => { active = false; };
+        return () => {
+            active = false;
+        };
     }, [draftId, catalogItemId, work.workId, unmappedId]);
 
     return (
@@ -190,6 +201,7 @@ export function DraftAnalysisPanel({
                                        reviewWarnings,
                                        coverageItems,
                                        coverageWarnings,
+                                       savedCoverageDecisionId,
                                        lineItems,
                                        quoteSnapshot,
                                        catalogItems,
@@ -215,7 +227,8 @@ export function DraftAnalysisPanel({
         || quoteSetupStatus?.missingRequirements.includes("CATALOG") === true;
 
     return (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
+        <section id="draft-analysis"
+                 className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.02] sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">AI-elemzés</p>
@@ -265,7 +278,8 @@ export function DraftAnalysisPanel({
                     )}
                     {quoteSetupError && (
                         <p className="mt-1 text-xs">
-                            Az új AI-elemzés a beállítás ellenőrzéséig nem indítható. A mentett piszkozat továbbra is megtekinthető és szerkeszthető.
+                            Az új AI-elemzés a beállítás ellenőrzéséig nem indítható. A mentett piszkozat továbbra is
+                            megtekinthető és szerkeszthető.
                         </p>
                     )}
                 </div>
@@ -276,7 +290,7 @@ export function DraftAnalysisPanel({
                     {setupReady && (
                         <div className="sm:col-span-2">
                             <label htmlFor={notesId} className="mb-2 block text-sm font-medium text-slate-700">
-                                Kiegészítés telefonos vagy helyszíni egyeztetés alapján
+                                Kiegészítés telefonos vagy helyszíni egyeztetés alapján:
                             </label>
                             <textarea
                                 id={notesId}
@@ -290,40 +304,44 @@ export function DraftAnalysisPanel({
                             <p className="mt-1.5 text-xs text-slate-500">
                                 Mira az elemzéskor figyelembe veszi ezt a szöveget.
                             </p>
+                            {draftId && setupReady && (
+                                <label htmlFor={includeNotesId}
+                                       className="mt-3 flex items-start gap-2.5 text-sm text-slate-700">
+                                    <input
+                                        id={includeNotesId}
+                                        type="checkbox"
+                                        checked={includeAdditionalNotes}
+                                        onChange={(event) => onIncludeAdditionalNotesChange(event.target.checked)}
+                                        disabled={busy || !additionalNotes.trim()}
+                                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                    />
+                                    <span>
+                                        <span className="block">Jelenjen meg a kiegészítés az ajánlatban</span>
+                                        {/*{!additionalNotes.trim() && (*/}
+                                        {/*    <span className="mt-1 block text-xs text-slate-500">*/}
+                                        {/*        A kapcsoláshoz előbb írj kiegészítő szöveget.*/}
+                                        {/*    </span>*/}
+                                        {/*)}*/}
+                                    </span>
+                                </label>
+                            )}
                         </div>
                     )}
 
                     {draftId && (
-                        <>
-                            <div>
-                                <label htmlFor={clientNameId} className="mb-2 block text-sm font-medium text-slate-700">
-                                    Ügyfél neve
-                                </label>
-                                <input
-                                    id={clientNameId}
-                                    value={clientName}
-                                    onChange={(event) => onClientNameChange(event.target.value)}
-                                    disabled={busy}
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
-                                    placeholder="Ügyfél neve"
-                                />
-                            </div>
-                            {setupReady && (
-                                <div className="flex items-end">
-                                    <label htmlFor={includeNotesId} className="flex items-start gap-2.5 text-sm text-slate-700">
-                                        <input
-                                            id={includeNotesId}
-                                            type="checkbox"
-                                            checked={includeAdditionalNotes}
-                                            onChange={(event) => onIncludeAdditionalNotesChange(event.target.checked)}
-                                            disabled={busy}
-                                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                                        />
-                                        <span>Jelenjen meg a kiegészítés az ajánlatban</span>
-                                    </label>
-                                </div>
-                            )}
-                        </>
+                        <div>
+                            <label htmlFor={clientNameId} className="mb-2 block text-sm font-medium text-slate-700">
+                                Ügyfél neve
+                            </label>
+                            <input
+                                id={clientNameId}
+                                value={clientName}
+                                onChange={(event) => onClientNameChange(event.target.value)}
+                                disabled={busy}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50"
+                                placeholder="Ügyfél neve"
+                            />
+                        </div>
                     )}
                 </div>
             )}
@@ -335,7 +353,7 @@ export function DraftAnalysisPanel({
                         <div>
                             <h3 className="text-sm font-semibold text-amber-950">Ajánlat teljességének ellenőrzése</h3>
                             <p className="mt-1 text-xs text-amber-900">
-                                Mira javaslatokat ad; a lefedettség végső megítélése a tiéd.
+                                Ellenőrizd, hogy az e-mailben kért összes munka szerepel-e az ajánlatban.
                             </p>
                         </div>
                         {!analysisFresh && (
@@ -350,12 +368,17 @@ export function DraftAnalysisPanel({
                         <ul className="mt-3 space-y-3">
                             {coverageItems.map((work) => {
                                 const statusLabel = work.status === "INCLUDED"
-                                    ? work.userConfirmed ? "Jóváhagyva – szerepel az ajánlatban" : "AI-illesztés – ellenőrizd"
+                                    ? work.userConfirmed ? "Jóváhagyva – szerepel az ajánlatban" : "Mira talált hozzá egy ajánlati tételt – ellenőrizd"
                                     : work.status === "MISSING"
                                         ? "Hiányzik"
                                         : work.status === "EXCLUDED"
                                             ? "Tudatosan kihagyva"
                                             : "Ellenőrzést igényel";
+                                const canConfirmWork = work.linkedLineItemId !== null
+                                    && work.recognitionStatus === "MAPPED"
+                                    && work.calculationStatus === "VALID"
+                                    && (work.status === "NEEDS_REVIEW"
+                                        || (work.status === "INCLUDED" && !work.userConfirmed));
                                 const linkedNames = (work.linkedLineItemIds ?? [])
                                     .map((lineId) => lineItems.find((item) => item.lineItemId === lineId)?.name)
                                     .filter((name): name is string => Boolean(name));
@@ -379,10 +402,10 @@ export function DraftAnalysisPanel({
                                                 {work.calculationStatus && work.calculationStatus !== "VALID" && (
                                                     <p className="mt-1 text-xs font-medium text-amber-800">
                                                         Kalkuláció: {work.calculationStatus === "INVALID"
-                                                            ? "érvénytelen bemenet vagy művelet"
-                                                            : work.calculationStatus === "NEEDS_INPUT"
-                                                                ? "hiányzó adat"
-                                                                : "feltételezés ellenőrzése szükséges"}
+                                                        ? "érvénytelen bemenet vagy művelet"
+                                                        : work.calculationStatus === "NEEDS_INPUT"
+                                                            ? "hiányzó adat"
+                                                            : "feltételezés ellenőrzése szükséges"}
                                                     </p>
                                                 )}
                                             </div>
@@ -398,8 +421,7 @@ export function DraftAnalysisPanel({
                                         </div>
                                         {work.status !== "EXCLUDED" && (
                                             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                                                {work.status === "INCLUDED" && !work.userConfirmed
-                                                    && work.linkedLineItemId && (
+                                                {canConfirmWork && (
                                                     <Button
                                                         type="button"
                                                         variant="secondary"
@@ -407,11 +429,11 @@ export function DraftAnalysisPanel({
                                                         onClick={() => onSetWorkDecision(
                                                             work.workId, "INCLUDED", work.linkedLineItemId ?? undefined)}
                                                     >
-                                                        Megerősítem a lefedettséget
+                                                        Igen, szerepel az ajánlatban
                                                     </Button>
                                                 )}
                                                 {work.recognitionStatus === "UNMAPPED"
-                                                    || work.recognitionStatus === "PARTIALLY_MAPPED" ? (
+                                                || work.recognitionStatus === "PARTIALLY_MAPPED" ? (
                                                     (quoteSnapshot?.workItems.find((candidate) =>
                                                         candidate.workId === work.workId)?.unmappedLines ?? [])
                                                         .map((unmapped, index) => (
@@ -450,7 +472,7 @@ export function DraftAnalysisPanel({
                                                         disabled={busy}
                                                         onClick={() => onSetWorkDecision(work.workId, "NEEDS_REVIEW")}
                                                     >
-                                                        Ellenőrzésre hagyás
+                                                        Még ellenőrzöm
                                                     </Button>
                                                 )}
                                             </div>
@@ -466,6 +488,11 @@ export function DraftAnalysisPanel({
                                                 Döntés visszavonása
                                             </Button>
                                         )}
+                                        {savedCoverageDecisionId === work.workId && (
+                                            <p role="status" className="mt-2 text-xs font-medium text-emerald-700">
+                                                Az ellenőrzési döntés mentésre került.
+                                            </p>
+                                        )}
                                     </li>
                                 );
                             })}
@@ -477,18 +504,25 @@ export function DraftAnalysisPanel({
                             <h4 className="text-sm font-semibold text-amber-950">AI-ellenőrzési figyelmeztetések</h4>
                             <ul className="mt-2 space-y-2">
                                 {coverageWarnings.length > 0 ? coverageWarnings.map((warning) => (
-                                    <li key={warning.warningId}
-                                        className="flex flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-start sm:justify-between">
-                                        <p className="min-w-0 text-sm text-amber-950">{warning.text}</p>
-                                        <Button
-                                            type="button"
-                                            variant={warning.acknowledged ? "ghost" : "secondary"}
-                                            className="shrink-0"
-                                            disabled={busy}
-                                            onClick={() => onAcknowledgeWarning(warning.warningId, !warning.acknowledged)}
-                                        >
-                                            {warning.acknowledged ? "Ellenőrzés visszavonása" : "Ellenőriztem"}
-                                        </Button>
+                                    <li key={warning.warningId} className="rounded-lg bg-white p-3">
+                                        <div
+                                            className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                            <p className="min-w-0 text-sm text-amber-950">{warning.text}</p>
+                                            <Button
+                                                type="button"
+                                                variant={warning.acknowledged ? "ghost" : "secondary"}
+                                                className="shrink-0"
+                                                disabled={busy}
+                                                onClick={() => onAcknowledgeWarning(warning.warningId, !warning.acknowledged)}
+                                            >
+                                                {warning.acknowledged ? "Ellenőrzés visszavonása" : "Ellenőriztem"}
+                                            </Button>
+                                        </div>
+                                        {savedCoverageDecisionId === warning.warningId && (
+                                            <p role="status" className="mt-2 text-xs font-medium text-emerald-700">
+                                                Az ellenőrzési döntés mentésre került.
+                                            </p>
+                                        )}
                                     </li>
                                 )) : reviewWarnings.map((warning, index) => (
                                     <li key={`${warning}-${index}`}

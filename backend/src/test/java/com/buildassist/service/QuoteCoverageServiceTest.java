@@ -79,6 +79,26 @@ class QuoteCoverageServiceTest {
     }
 
     @Test
+    void manuallyAddedStandaloneItemsDoNotAppearAsCustomerCoverageWork() {
+        DraftQuoteSnapshot.QuoteWorkSnapshot manualWork = new DraftQuoteSnapshot.QuoteWorkSnapshot(
+                "manual-work", "Kézzel felvett tétel", InputSource.USER_OVERRIDE,
+                new Quantity(BigDecimal.ONE, QuantityUnit.EACH), "db",
+                SettlementMode.MATERIAL_AND_LABOR, WorkRecognitionStatus.MAPPED,
+                null, null, "Kézzel hozzáadott ajánlati tétel.", true, List.of(), List.of());
+        DraftQuoteSnapshot snapshot = snapshot(
+                List.of(work("email-work", "Ügyfél által kért munka", 1), manualWork),
+                List.of(line("email-line", "email-work", 1, CalculationStatus.VALID),
+                        line("manual-line", "manual-work", 1, CalculationStatus.VALID)));
+
+        List<CoverageWorkItem> coverage = service.evaluate(snapshot, List.of());
+        var response = service.response(snapshot, List.of(), List.of(), List.of(), true, "fingerprint");
+
+        assertEquals(1, coverage.size());
+        assertEquals("email-work", coverage.getFirst().workId());
+        assertTrue(response.unresolvedIssues().isEmpty());
+    }
+
+    @Test
     void decisionsCanOnlyLinkAValidLineDirectlyOwnedByTheWork() {
         DraftQuoteSnapshot snapshot = snapshot(
                 List.of(work("work-a", "Konnektor", 20), work("work-b", "Kapcsoló", 8)),

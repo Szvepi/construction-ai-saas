@@ -49,33 +49,35 @@ export function DashboardNav({onNavigate}: Props) {
                     Munkaterület
                 </p>
                 <div className="space-y-1">
-                {links.map((link) => (
-                    <Link
-                        key={link.href}
-                        href={link.href}
-                        onClick={onNavigate}
-                        aria-current={
-                            pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`))
-                                ? "page"
-                                : undefined
-                        }
-                        className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                            pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`))
-                                ? "bg-brand-50 text-brand-700 shadow-sm shadow-brand-900/[0.03]"
-                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                        }`}
-                    >
-                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px] shrink-0">
-                            <path d={link.icon} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                        <span>{link.label}</span>
-                    </Link>
-                ))}
+                    {links.map((link) => (
+                        <Link
+                            key={link.href}
+                            href={link.href}
+                            onClick={onNavigate}
+                            aria-current={
+                                pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`))
+                                    ? "page"
+                                    : undefined
+                            }
+                            className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                                pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`))
+                                    ? "bg-brand-50 text-brand-700 shadow-sm shadow-brand-900/[0.03]"
+                                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                            }`}
+                        >
+                            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+                                 className="h-[18px] w-[18px] shrink-0">
+                                <path d={link.icon} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"
+                                      strokeLinejoin="round"/>
+                            </svg>
+                            <span>{link.label}</span>
+                        </Link>
+                    ))}
                 </div>
             </nav>
             <div className="border-t border-slate-100 px-6 py-4">
                 <p className="text-xs font-medium text-slate-500">MIRA</p>
-                <p className="mt-1 text-[11px] text-slate-400">AI-ajánlatkészítő munkaterület</p>
+                <p className="mt-1 text-[11px] text-slate-400">AI-ajánlatkészítő munkatárs</p>
             </div>
         </div>
     );

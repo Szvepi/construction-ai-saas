@@ -148,6 +148,9 @@ class AiDraftServiceCoverageTest {
                 .when(emailDraftRepository.findById(DRAFT_ID))
                 .thenAnswer(invocation -> Optional.ofNullable(savedDraft));
         org.mockito.Mockito.lenient()
+                .when(emailDraftRepository.findTopByEmailIdOrderByCreatedAtDesc(EMAIL_ID))
+                .thenAnswer(invocation -> Optional.ofNullable(savedDraft));
+        org.mockito.Mockito.lenient()
                 .when(emailDraftRepository.findByIdForUpdate(DRAFT_ID))
                 .thenAnswer(invocation -> Optional.ofNullable(savedDraft));
     }
@@ -542,6 +545,74 @@ class AiDraftServiceCoverageTest {
         assertTrue(deleted.quoteSnapshot().lineItems().stream()
                 .noneMatch(line -> line.lineItemId().equals(manual.lineItemId())));
         assertEquals(1, deleted.quoteSnapshot().lineItems().size());
+    }
+
+    @Test
+    void reanalysisPreservesStandaloneManualLines() throws Exception {
+        when(aiQuoteExtractionService.extract(eq(email), eq(List.of(catalogItem)), eq(null)))
+                .thenReturn(validExtraction());
+        DraftDtos.AnalysisResponse initial = aiDraftService.analyzeEmail(EMAIL_ID, USER_ID);
+        DraftDtos.GenerateDraftResponse added = aiDraftService.addManualLine(
+                DRAFT_ID, new DraftDtos.AddManualLineRequest(
+                        "Egyszeri kiszállási díj", new BigDecimal("2"), "db",
+                        new BigDecimal("1250"), CatalogItemType.OTHER, null, 0L), USER_ID);
+        String manualLineId = added.quoteSnapshot().lineItems().stream()
+                .filter(DraftQuoteSnapshot.QuoteLineSnapshot::userOverrideLine)
+                .findFirst().orElseThrow().lineItemId();
+
+        String additionalNotes = "Telefonos egyeztetés alapján";
+        when(aiQuoteExtractionService.extract(
+                eq(email), eq(List.of(catalogItem)), eq(additionalNotes)))
+                .thenReturn(validExtraction());
+
+        DraftDtos.AnalysisResponse reanalyzed =
+                aiDraftService.analyzeEmail(EMAIL_ID, USER_ID, additionalNotes);
+        DraftQuoteSnapshot.QuoteLineSnapshot preservedLine = reanalyzed.quoteSnapshot().lineItems().stream()
+                .filter(line -> line.lineItemId().equals(manualLineId))
+                .findFirst().orElseThrow();
+        DraftQuoteSnapshot.QuoteWorkSnapshot preservedWork = reanalyzed.quoteSnapshot().workItems().stream()
+                .filter(work -> work.workId().equals(preservedLine.workId()))
+                .findFirst().orElseThrow();
+
+        assertEquals(2, reanalyzed.lineItems().size());
+        assertEquals(new BigDecimal("72500"), reanalyzed.netQuotePrice());
+        assertEquals(InputSource.USER_OVERRIDE, preservedWork.source());
+        assertEquals(1, reanalyzed.coverageItems().size());
+        assertEquals(additionalNotes, reanalyzed.additionalNotes());
+        assertEquals(initial.clientName(), reanalyzed.clientName());
+    }
+
+    @Test
+    void reanalysisReattachesManualLinesToAUniqueMatchingAnalyzedWork() throws Exception {
+        when(aiQuoteExtractionService.extract(eq(email), eq(List.of(catalogItem)), eq(null)))
+                .thenReturn(validExtraction());
+        DraftDtos.AnalysisResponse initial = aiDraftService.analyzeEmail(EMAIL_ID, USER_ID);
+        String oldWorkId = initial.quoteSnapshot().workItems().getFirst().workId();
+        DraftDtos.GenerateDraftResponse added = aiDraftService.addManualLine(
+                DRAFT_ID, new DraftDtos.AddManualLineRequest(
+                        "Egyszeri kiszállási díj", new BigDecimal("2"), "db",
+                        new BigDecimal("1250"), CatalogItemType.OTHER, oldWorkId, 0L), USER_ID);
+        String manualLineId = added.quoteSnapshot().lineItems().stream()
+                .filter(DraftQuoteSnapshot.QuoteLineSnapshot::userOverrideLine)
+                .findFirst().orElseThrow().lineItemId();
+        String additionalNotes = "Telefonos egyeztetés alapján";
+        when(aiQuoteExtractionService.extract(
+                eq(email), eq(List.of(catalogItem)), eq(additionalNotes)))
+                .thenReturn(validExtraction());
+
+        DraftDtos.AnalysisResponse reanalyzed =
+                aiDraftService.analyzeEmail(EMAIL_ID, USER_ID, additionalNotes);
+        DraftQuoteSnapshot.QuoteLineSnapshot preservedLine = reanalyzed.quoteSnapshot().lineItems().stream()
+                .filter(line -> line.lineItemId().equals(manualLineId))
+                .findFirst().orElseThrow();
+        DraftQuoteSnapshot.QuoteWorkSnapshot analyzedWork = reanalyzed.quoteSnapshot().workItems().stream()
+                .filter(work -> work.source() == InputSource.CUSTOMER_EMAIL)
+                .findFirst().orElseThrow();
+
+        assertEquals(2, reanalyzed.lineItems().size());
+        assertNotEquals(oldWorkId, analyzedWork.workId());
+        assertEquals(analyzedWork.workId(), preservedLine.workId());
+        assertEquals(1, reanalyzed.coverageItems().size());
     }
 
     @Test

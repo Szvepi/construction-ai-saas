@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import Link from "next/link";
 import {useParams, useRouter} from "next/navigation";
 import {ApiError, apiFetch} from "@/lib/api";
@@ -9,6 +9,7 @@ import type {EmailDetail} from "@/lib/types";
 import {DashboardLayout} from "@/components/layout/DashboardLayout";
 import {DraftPanel} from "@/components/emails/DraftPanel";
 import {EmailSourcePanel} from "@/components/emails/EmailSourcePanel";
+import {QuoteProgressBar, type QuoteProgressData} from "@/components/emails/QuoteProgressBar";
 
 type PdfPreview = {
     url: string;
@@ -25,6 +26,23 @@ export default function EmailDetailPage() {
     const [bodyRefreshError, setBodyRefreshError] = useState<string | null>(null);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [pdfPreview, setPdfPreview] = useState<PdfPreview | null>(null);
+    const [scrollToPdfPreview, setScrollToPdfPreview] = useState(false);
+    const [quoteProgress, setQuoteProgress] = useState<QuoteProgressData | null>(null);
+    const pdfPreviewRef = useRef<HTMLElement | null>(null);
+
+    const handlePdfPreviewChange = useCallback((preview: PdfPreview | null, shouldScroll = false) => {
+        setPdfPreview(preview);
+        setScrollToPdfPreview(Boolean(preview && shouldScroll));
+    }, []);
+
+    useEffect(() => {
+        if (!pdfPreview || !scrollToPdfPreview) return;
+        const frame = window.requestAnimationFrame(() => {
+            pdfPreviewRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+            setScrollToPdfPreview(false);
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [pdfPreview, scrollToPdfPreview]);
 
     const loadEmail = useCallback(async () => {
         try {
@@ -148,6 +166,8 @@ export default function EmailDetailPage() {
                             </p>
                         </div>
 
+                        {!email.replied && quoteProgress && <QuoteProgressBar progress={quoteProgress}/>}
+
                         {bodyRefreshError && (
                             <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                                 A levél tartalma nem tölthető be a Gmailből: {bodyRefreshError}
@@ -169,12 +189,16 @@ export default function EmailDetailPage() {
                                     email={email}
                                     onSent={() => loadEmail()}
                                     onDirtyChange={setHasUnsavedChanges}
-                                    onPdfPreviewChange={setPdfPreview}
+                                    onPdfPreviewChange={handlePdfPreviewChange}
+                                    onProgressChange={setQuoteProgress}
                                 />
                             )}
                         </div>
                         {pdfPreview && (
-                            <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <section
+                                id="pdf-preview"
+                                ref={pdfPreviewRef}
+                                className="mt-3 scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
                                     <div>
                                         <h2 className="text-sm font-semibold text-slate-900">PDF árajánlat előnézete</h2>

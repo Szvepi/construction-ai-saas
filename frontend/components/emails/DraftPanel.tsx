@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 import {ApiError, apiFetch, apiFetchBlob} from "@/lib/api";
 import type {
@@ -20,13 +20,15 @@ import {type DraftAction, DraftActions} from "@/components/emails/DraftActions";
 import {DraftAnalysisPanel} from "@/components/emails/DraftAnalysisPanel";
 import {QuoteLineItemsEditor} from "@/components/emails/QuoteLineItemsEditor";
 import {CoverageConfirmationDialog} from "@/components/emails/CoverageConfirmationDialog";
+import type {QuoteProgressData} from "@/components/emails/QuoteProgressBar";
 
 type Props = {
     emailId: number;
     email?: EmailDetail | null;
     onSent: () => void;
     onDirtyChange?: (dirty: boolean) => void;
-    onPdfPreviewChange?: (preview: { url: string; draftId: number } | null) => void;
+    onPdfPreviewChange?: (preview: { url: string; draftId: number } | null, scrollToPreview?: boolean) => void;
+    onProgressChange?: (progress: QuoteProgressData) => void;
 };
 
 type DraftFields = {
@@ -44,7 +46,14 @@ function normalizeLineItems(items: DraftLineItem[] | null | undefined): DraftLin
     return (items ?? []).map((item) => ({...item}));
 }
 
-export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewChange}: Props) {
+export function DraftPanel({
+    emailId,
+    email,
+    onSent,
+    onDirtyChange,
+    onPdfPreviewChange,
+    onProgressChange,
+}: Props) {
     const router = useRouter();
     const [draftId, setDraftId] = useState<number | null>(null);
     const [clientName, setClientName] = useState("");
@@ -70,10 +79,12 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
     const [body, setBody] = useState("");
     const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+    const scrollToPdfPreviewOnUpdate = useRef(false);
     const [busyAction, setBusyAction] = useState<DraftAction>(null);
     const [error, setError] = useState<string | null>(null);
     const [versionConflict, setVersionConflict] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+    const [savedCoverageDecisionId, setSavedCoverageDecisionId] = useState<string | null>(null);
     const [previewGenerated, setPreviewGenerated] = useState(false);
     const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
     const [quoteSetupStatus, setQuoteSetupStatus] = useState<QuoteSetupStatus | null>(null);
@@ -117,6 +128,45 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
     useEffect(() => {
         onDirtyChange?.(isDirty);
     }, [isDirty, onDirtyChange]);
+
+    useEffect(() => {
+        const unresolvedWorkCount = coverageItems.filter((work) =>
+            work.status !== "INCLUDED" && work.status !== "EXCLUDED").length;
+        const unacknowledgedWarningCount = coverageWarnings.filter((warning) => !warning.acknowledged).length;
+        const quoteReady = Boolean(
+            draftId
+            && lineItems.length > 0
+            && netQuotePrice !== null
+            && taxConfigurationValid
+            && analysisFresh
+            && unresolvedWorkCount === 0
+            && unacknowledgedWarningCount === 0,
+        );
+
+        onProgressChange?.({
+            analysisComplete: draftId !== null,
+            analysisFresh,
+            unresolvedWorkCount,
+            unacknowledgedWarningCount,
+            lineItemCount: lineItems.length,
+            quoteReady,
+            previewReady: Boolean(previewGenerated && pdfUrl && !isDirty),
+            gmailDraftCreated,
+        });
+    }, [
+        analysisFresh,
+        coverageItems,
+        coverageWarnings,
+        draftId,
+        gmailDraftCreated,
+        isDirty,
+        lineItems.length,
+        netQuotePrice,
+        onProgressChange,
+        pdfUrl,
+        previewGenerated,
+        taxConfigurationValid,
+    ]);
 
     useEffect(() => {
         let active = true;
@@ -219,6 +269,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         }
         setError(null);
         setSaveSuccess(null);
+        setSavedCoverageDecisionId(null);
         return () => {
             active = false;
         };
@@ -233,7 +284,9 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             body && previewGenerated && pdfUrl && draftId
                 ? {url: pdfUrl, draftId}
                 : null,
+            scrollToPdfPreviewOnUpdate.current,
         );
+        scrollToPdfPreviewOnUpdate.current = false;
     }, [body, draftId, onPdfPreviewChange, pdfUrl, previewGenerated]);
 
     const total = useMemo(
@@ -485,6 +538,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
         setBusyAction("save");
         setError(null);
         setSaveSuccess(null);
+        setSavedCoverageDecisionId(null);
         setPreviewGenerated(false);
         try {
             const data = await apiFetch<GenerateDraftResponse>(`/api/drafts/${draftId}/coverage/${encodeURIComponent(issueId)}`, {
@@ -496,7 +550,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 },
             });
             applySavedDraft(data);
-            setSaveSuccess("Az ellenőrzési döntés mentésre került.");
+            setSavedCoverageDecisionId(issueId);
         } catch (err) {
             setVersionConflict(err instanceof ApiError && err.status === 409);
             setError(err instanceof ApiError ? err.message : "Az ellenőrzési döntés mentése sikertelen");
@@ -520,6 +574,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             setBody(data.draftBody ?? "");
             applySavedDraft(data);
             const pdf = await apiFetchBlob(`/api/drafts/${draftId}/pdf`);
+            scrollToPdfPreviewOnUpdate.current = true;
             setPdfUrl(URL.createObjectURL(pdf));
             setPreviewGenerated(true);
             return true;
@@ -703,12 +758,20 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
             )}
 
             {busyAction && (
-                <p role="status"
-                   className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
-                    {busyAction === "analyze" && "Mira elemzi a levelet és összeállítja a javasolt tételeket…"}
-                    {busyAction === "save" && "Az ajánlat módosításainak mentése folyamatban…"}
-                    {busyAction === "preview" && "A PDF-előnézet készítése folyamatban…"}
-                    {busyAction === "finalize" && "A Gmail-piszkozat készítése folyamatban…"}
+                <p role="status" aria-busy={busyAction === "analyze"}
+                   className="flex items-center gap-2 rounded-xl border border-brand-100 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
+                    {busyAction === "analyze" && (
+                        <span
+                            aria-hidden="true"
+                            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-700 border-r-transparent"
+                        />
+                    )}
+                    <span>
+                        {busyAction === "analyze" && "Mira elemzi a levelet és összeállítja a javasolt tételeket…"}
+                        {busyAction === "save" && "Az ajánlat módosításainak mentése folyamatban…"}
+                        {busyAction === "preview" && "A PDF-előnézet készítése folyamatban…"}
+                        {busyAction === "finalize" && "A Gmail-piszkozat készítése folyamatban…"}
+                    </span>
                 </p>
             )}
 
@@ -721,6 +784,7 @@ export function DraftPanel({emailId, email, onSent, onDirtyChange, onPdfPreviewC
                 reviewWarnings={reviewWarnings}
                 coverageItems={coverageItems}
                 coverageWarnings={coverageWarnings}
+                savedCoverageDecisionId={savedCoverageDecisionId}
                 lineItems={lineItems}
                 quoteSnapshot={quoteSnapshot}
                 catalogItems={catalogItems}

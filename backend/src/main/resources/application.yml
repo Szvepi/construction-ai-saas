@@ -6,9 +6,10 @@ spring:
       api-key: ${OPENAI_API_KEY}
       chat:
         options:
-          model: ${OPENAI_MODEL:gpt-4o-mini}
+          model: ${OPENAI_MODEL:gpt-6-luna}
           # Alacsony hőmérséklet (temperature), mert precíz adatkinyerést várunk, nem kreativitást!
-          temperature: 0.2
+          temperature: 1
+          reasoning_effort: low
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/mira_dev}
     username: ${DATABASE_USERNAME:buildassist}

@@ -1,63 +1,25 @@
 package com.buildassist.service;
 
-import com.buildassist.calculation.CalculationStatus;
-import com.buildassist.calculation.CalculationInput;
-import com.buildassist.calculation.CalculationOperation;
-import com.buildassist.calculation.CalculationPlan;
-import com.buildassist.calculation.CalculationResult;
-import com.buildassist.calculation.CalculationStep;
-import com.buildassist.calculation.ChargeComponent;
-import com.buildassist.calculation.CatalogCalculationConfig;
-import com.buildassist.calculation.CatalogParameterConstraint;
-import com.buildassist.calculation.CatalogParameterDefault;
-import com.buildassist.calculation.CatalogItemType;
-import com.buildassist.calculation.DraftQuoteSnapshot;
+import com.buildassist.calculation.*;
 import com.buildassist.calculation.DraftQuoteSnapshot.QuoteLineSnapshot;
 import com.buildassist.calculation.DraftQuoteSnapshot.QuoteWorkSnapshot;
-import com.buildassist.calculation.NetMoney;
-import com.buildassist.calculation.Quantity;
-import com.buildassist.calculation.QuantityUnit;
-import com.buildassist.calculation.WorkRecognitionStatus;
-import com.buildassist.calculation.InputSource;
-import com.buildassist.dto.AiDtos.CoverageDecision;
-import com.buildassist.dto.AiDtos.CoverageDecisionRequest;
-import com.buildassist.dto.AiDtos.CoverageResponse;
-import com.buildassist.dto.AiDtos.CoverageStatus;
-import com.buildassist.dto.AiDtos.CoverageWarning;
-import com.buildassist.dto.AiDtos.DraftLineItem;
-import com.buildassist.dto.AiDtos.DraftPricingInfo;
+import com.buildassist.dto.AiDtos.*;
 import com.buildassist.dto.DraftDtos;
-import com.buildassist.model.CatalogItem;
-import com.buildassist.model.CompanyProfile;
-import com.buildassist.model.Email;
-import com.buildassist.model.EmailDraft;
-import com.buildassist.model.GmailConnection;
-import com.buildassist.model.User;
-import com.buildassist.repository.CatalogItemRepository;
-import com.buildassist.repository.CompanyProfileRepository;
-import com.buildassist.repository.EmailDraftRepository;
-import com.buildassist.repository.EmailRepository;
-import com.buildassist.repository.GmailConnectionRepository;
+import com.buildassist.model.*;
+import com.buildassist.repository.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.mail.internet.MimeMessage;
-import java.io.ByteArrayOutputStream;
-import java.math.BigDecimal;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.spring6.SpringTemplateEngine;
+
+import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.util.*;
 
 @Service
 public class AiDraftService {
@@ -147,11 +109,17 @@ public class AiDraftService {
         List<CatalogItem> catalogItems = quoteSetupValidationService.requireReady(userId);
         Email email = emailRepository.findByIdAndGmailConnectionUserId(emailId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Email not found or access denied"));
+        EmailDraft previousDraft = emailDraftRepository
+                .findTopByEmailIdOrderByCreatedAtDesc(emailId).orElse(null);
         String normalizedNotes = normalizeOptional(additionalNotes);
         var extraction = aiQuoteExtractionService.extract(email, catalogItems, normalizedNotes);
         AiQuoteSnapshotBuilder.BuildResult build = snapshotBuilder.build(
                 extraction, catalogItems, email.getBodyText(), normalizedNotes);
-        DraftQuoteSnapshot snapshot = snapshotService.seal(build.snapshot());
+        DraftQuoteSnapshot snapshot = build.snapshot();
+        if (previousDraft != null) {
+            snapshot = preserveManualLines(snapshot, requiredSnapshot(previousDraft));
+        }
+        snapshot = snapshotService.seal(snapshot);
 
         EmailDraft draft = new EmailDraft();
         draft.setEmail(email);
@@ -190,6 +158,78 @@ public class AiDraftService {
                 taxSummary(snapshot, savedDraft, userId).grossTotal(),
                 taxSummary(snapshot, savedDraft, userId).configurationValid(),
                 savedDraft.getVersion());
+    }
+
+    private DraftQuoteSnapshot preserveManualLines(
+            DraftQuoteSnapshot analyzed, DraftQuoteSnapshot previous) {
+        List<QuoteLineSnapshot> manualLines = previous.lineItems().stream()
+                .filter(QuoteLineSnapshot::userOverrideLine)
+                .toList();
+        if (manualLines.isEmpty()) {
+            return analyzed;
+        }
+
+        List<QuoteWorkSnapshot> works = new ArrayList<>(analyzed.workItems());
+        List<QuoteLineSnapshot> lines = new ArrayList<>(analyzed.lineItems());
+        Map<String, QuoteWorkSnapshot> previousWorks = new HashMap<>();
+        previous.workItems().forEach(work -> previousWorks.put(work.workId(), work));
+        Map<String, String> preservedWorkIds = new HashMap<>();
+
+        for (QuoteLineSnapshot manualLine : manualLines) {
+            QuoteWorkSnapshot previousWork = previousWorks.get(manualLine.workId());
+            if (previousWork == null) {
+                throw new IllegalStateException("A kézi ajánlati sorhoz nem található munkafázis.");
+            }
+
+            QuoteWorkSnapshot matchingWork = findMatchingAnalyzedWork(previousWork, works);
+            String targetWorkId;
+            if (matchingWork != null) {
+                targetWorkId = matchingWork.workId();
+            } else {
+                targetWorkId = preservedWorkIds.computeIfAbsent(previousWork.workId(), ignored -> {
+                    String workId = new QuoteIdGenerator().newWorkId();
+                    works.add(new QuoteWorkSnapshot(
+                            workId, previousWork.originalRequest(), InputSource.USER_OVERRIDE,
+                            previousWork.customerRequestedQuantity(), previousWork.customerRequestedUnit(),
+                            previousWork.settlementMode(), WorkRecognitionStatus.MAPPED,
+                            null, previousWork.sourceEvidence(),
+                            "Kézi tétel megőrizve az újraelemzés után.",
+                            true, List.of(), List.of(), List.of()));
+                    return workId;
+                });
+            }
+            lines.add(copyWithWorkId(manualLine, targetWorkId));
+        }
+
+        DraftQuoteSnapshot merged = new DraftQuoteSnapshot(
+                analyzed.schemaVersion(), null, works, lines);
+        return pricingService.reprice(merged).snapshot();
+    }
+
+    private QuoteWorkSnapshot findMatchingAnalyzedWork(
+            QuoteWorkSnapshot previousWork, List<QuoteWorkSnapshot> analyzedWorks) {
+        if (previousWork.source() == InputSource.USER_OVERRIDE) {
+            return null;
+        }
+        List<QuoteWorkSnapshot> matches = analyzedWorks.stream()
+                .filter(work -> work.source() == previousWork.source())
+                .filter(work -> work.originalRequest().trim()
+                        .equalsIgnoreCase(previousWork.originalRequest().trim()))
+                .toList();
+        return matches.size() == 1 ? matches.getFirst() : null;
+    }
+
+    private QuoteLineSnapshot copyWithWorkId(QuoteLineSnapshot line, String workId) {
+        return new QuoteLineSnapshot(
+                line.lineItemId(), workId, line.catalogItemId(), line.catalogItem(),
+                line.settlementMode(), line.requirements(), line.calculationPlan(),
+                line.calculationResult(), line.requiredQuantity(), line.procurementQuantity(),
+                line.customerChargeQuantity(), line.userOverrideQuantity(),
+                line.assumptionsApproved(), line.approvedFingerprint(), line.explanation(),
+                line.netLineTotal(), line.chargeable(), line.procurementPackageCount(),
+                line.assumptions(), line.procurementOutputReference(),
+                line.procurementPackageCountReference(), line.manualNetUnitPrice(),
+                line.manualPriceReason(), line.userOverrideLine());
     }
 
     @Transactional
@@ -273,7 +313,7 @@ public class AiDraftService {
                 && work.settlementMode() == com.buildassist.calculation.SettlementMode.MATERIAL_AND_LABOR
                 && allowancePercent != null
                 ? new Quantity(required.value().multiply(BigDecimal.ONE.add(allowancePercent.movePointLeft(2))),
-                        required.unit())
+                required.unit())
                 : required;
         Quantity procurement = catalog.getItemType() == CatalogItemType.MATERIAL
                 ? work.settlementMode() == com.buildassist.calculation.SettlementMode.CUSTOMER_SUPPLIED_MATERIAL
@@ -359,9 +399,9 @@ public class AiDraftService {
                     .filter(line -> Objects.equals(line.catalogItemId(), request.catalogItemId()))
                     .filter(line -> request.unmappedId() != null
                             ? Objects.equals(line.explanation(),
-                                    "Munkához rendelt katalógustétel: " + request.unmappedId())
+                            "Munkához rendelt katalógustétel: " + request.unmappedId())
                             : request.quantity() != null && line.requiredQuantity() != null
-                                    && line.requiredQuantity().value().compareTo(request.quantity()) == 0)
+                            && line.requiredQuantity().value().compareTo(request.quantity()) == 0)
                     .findFirst().orElse(null);
             if (alreadyMapped != null) {
                 return toResponse(draft, userId);
@@ -421,7 +461,7 @@ public class AiDraftService {
                 : allowancePercent == null || allowancePercent.signum() == 0
                 ? required
                 : new Quantity(required.value().multiply(BigDecimal.ONE.add(allowancePercent.movePointLeft(2))),
-                        required.unit());
+                required.unit());
         Quantity procurement = required == null || catalog.getItemType() != CatalogItemType.MATERIAL ? null
                 : work.settlementMode()
                 == com.buildassist.calculation.SettlementMode.CUSTOMER_SUPPLIED_MATERIAL
@@ -545,7 +585,7 @@ public class AiDraftService {
             Quantity directQuantity = request == null || request.quantity() == null
                     ? work.customerRequestedQuantity()
                     : new Quantity(request.quantity(), QuantityUnit.fromCode(
-                            request.unit() == null ? catalog.getUnit() : request.unit()));
+                    request.unit() == null ? catalog.getUnit() : request.unit()));
             if (allowed(config).contains(CalculationOperation.DIRECT)
                     && (directQuantity == null || compatible(directQuantity, catalog.getUnit()))) {
                 String unit = catalog.getUnit();
@@ -558,7 +598,7 @@ public class AiDraftService {
                         directQuantity != null && (request != null && request.quantity() != null
                                 || work.source() != InputSource.AI_ASSUMPTION),
                         request != null && request.quantity() != null
-                        ? "Kivitelező által megadott mennyiség" : work.sourceEvidence());
+                                ? "Kivitelező által megadott mennyiség" : work.sourceEvidence());
                 suggested = new CalculationPlan(List.of(input), List.of(new CalculationStep(
                         "mappingDirect", CalculationOperation.DIRECT, List.of(input.id()), unit, null, null)),
                         "mappingDirect", List.of());
@@ -579,7 +619,7 @@ public class AiDraftService {
                 inputs.add(configured == null
                         ? new CalculationInput(thicknessId, null, thicknessUnit, InputSource.AI_ASSUMPTION, false)
                         : new CalculationInput(thicknessId, configured.value(), configured.unit(),
-                                configured.source(), true));
+                        configured.source(), true));
                 suggested = new CalculationPlan(inputs, List.of(new CalculationStep(
                         "mappingVolume", CalculationOperation.VOLUME,
                         List.of("area", thicknessId), catalog.getUnit(), null, null)),
@@ -800,11 +840,11 @@ public class AiDraftService {
                 .map(item -> item.workId().equals(work.workId())
                         && item.source() == InputSource.USER_OVERRIDE
                         ? new QuoteWorkSnapshot(item.workId(), request.name().trim(), item.source(),
-                                new Quantity(request.quantity(), QuantityUnit.fromCode(request.unit())),
-                                request.unit(), item.settlementMode(), item.recognitionStatus(),
-                                item.suggestedCatalogItemId(), item.sourceEvidence(), item.explanation(),
-                                item.explicitlyRequested(), item.assumptions(), item.missingParameters(),
-                                item.unmappedLines())
+                        new Quantity(request.quantity(), QuantityUnit.fromCode(request.unit())),
+                        request.unit(), item.settlementMode(), item.recognitionStatus(),
+                        item.suggestedCatalogItemId(), item.sourceEvidence(), item.explanation(),
+                        item.explicitlyRequested(), item.assumptions(), item.missingParameters(),
+                        item.unmappedLines())
                         : item).toList();
         persistSnapshotEdit(draft, snapshot, works, lines);
         emailDraftRepository.flush();
@@ -831,11 +871,11 @@ public class AiDraftService {
         } else if (lines.stream().noneMatch(remaining -> remaining.workId().equals(line.workId()))) {
             works = works.stream().map(work -> work.workId().equals(line.workId())
                     ? new QuoteWorkSnapshot(work.workId(), work.originalRequest(), work.source(),
-                            work.customerRequestedQuantity(), work.customerRequestedUnit(),
-                            work.settlementMode(), WorkRecognitionStatus.UNMAPPED,
-                            work.suggestedCatalogItemId(), work.sourceEvidence(), work.explanation(),
-                            work.explicitlyRequested(), work.assumptions(), work.missingParameters(),
-                            work.unmappedLines())
+                    work.customerRequestedQuantity(), work.customerRequestedUnit(),
+                    work.settlementMode(), WorkRecognitionStatus.UNMAPPED,
+                    work.suggestedCatalogItemId(), work.sourceEvidence(), work.explanation(),
+                    work.explicitlyRequested(), work.assumptions(), work.missingParameters(),
+                    work.unmappedLines())
                     : work).toList();
         }
         persistSnapshotEdit(draft, snapshot, works, lines);
@@ -901,7 +941,7 @@ public class AiDraftService {
                 plan, result, normalized,
                 itemType == CatalogItemType.MATERIAL ? normalized : null,
                 normalized, null, false, null,
-                "Kézi, egyszeri ajánlati tétel.", null, true, null,
+                "Kézzel felvett, egyszeri ajánlati tétel.", null, true, null,
                 List.of(), null, null, netUnitPrice,
                 "USER_OVERRIDE: kézzel megadott ajánlati ár", true);
     }
@@ -1243,10 +1283,10 @@ public class AiDraftService {
     private boolean sameCalculationParameters(QuoteLineSnapshot line, DraftLineItem submitted) {
         List<com.buildassist.dto.AiDtos.CalculationParameter> actual =
                 line.calculationPlan() == null ? List.of() : line.calculationPlan().inputs().stream()
-                .map(input -> new com.buildassist.dto.AiDtos.CalculationParameter(
-                        input.id(), input.value(), input.unit(), input.source().name(), input.approved(),
-                        "USER_REJECTED_ASSUMPTION".equals(input.evidence())))
-                .toList();
+                        .map(input -> new com.buildassist.dto.AiDtos.CalculationParameter(
+                                input.id(), input.value(), input.unit(), input.source().name(), input.approved(),
+                                "USER_REJECTED_ASSUMPTION".equals(input.evidence())))
+                        .toList();
         return actual.equals(submitted.calculationParameters())
                 && line.assumptionsApproved() == submitted.assumptionsApproved();
     }

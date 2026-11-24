@@ -67,7 +67,7 @@ const PRESETS: Record<PresetType, { title: string; icon: string; items: PresetIt
             {name: "Mennyezetfestési munkadíj", unit: "m2", itemType: "LABOR"},
             {name: "Mélyalapozás", unit: "m2", itemType: "LABOR"},
             {name: "Festékanyag", unit: "l", itemType: "MATERIAL"},
-            {name: "Gipszkarton válaszfal", unit: "m2", itemType: "COMBINED"},
+            {name: "Gipszkarton válaszfal készítése", unit: "m2", itemType: "COMBINED"},
             {name: "Gipszkarton mennyezet készítése", unit: "m2", itemType: "COMBINED"},
             {name: "Tapétázás", unit: "m2", itemType: "LABOR"},
             {name: "Fa nyílászárók mázolása", unit: "m2", itemType: "LABOR"},
