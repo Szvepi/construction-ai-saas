@@ -852,7 +852,7 @@ public final class AiQuoteSnapshotBuilder {
             if (source == InputSource.CUSTOMER_EMAIL || source == InputSource.CUSTOMER_SUPPLEMENT) {
                 String evidenceSource = source == InputSource.CUSTOMER_EMAIL ? emailBody : additionalNotes;
                 if (input.value() == null || safeText(input.evidence()) == null
-                        || evidenceSource == null || !evidenceSource.contains(input.evidence())
+                        || !containsEvidence(evidenceSource, input.evidence())
                         || !verifiedNumericEvidence(source, input.evidence(), input.value(), input.unit(),
                         emailBody, additionalNotes)) {
                     inputs.add(new CalculationInput(
@@ -895,7 +895,7 @@ public final class AiQuoteSnapshotBuilder {
         if (source == InputSource.CUSTOMER_EMAIL || source == InputSource.CUSTOMER_SUPPLEMENT) {
             String quoted = safeText(evidence);
             String sourceText = source == InputSource.CUSTOMER_EMAIL ? emailBody : additionalNotes;
-            if (quoted != null && sourceText != null && sourceText.contains(quoted)) {
+            if (containsEvidence(sourceText, quoted)) {
                 return new SourceResolution(source, quoted, null);
             }
             return new SourceResolution(InputSource.AI_ASSUMPTION, null,
@@ -920,8 +920,7 @@ public final class AiQuoteSnapshotBuilder {
                 return new SettlementResolution(mode, null);
             }
             String quoted = safeText(evidence);
-            if (quoted != null && ((emailBody != null && emailBody.contains(quoted))
-                    || (additionalNotes != null && additionalNotes.contains(quoted)))) {
+            if (containsEvidence(emailBody, quoted) || containsEvidence(additionalNotes, quoted)) {
                 return new SettlementResolution(mode, null);
             }
             return new SettlementResolution(SettlementMode.MATERIAL_AND_LABOR,
@@ -945,8 +944,22 @@ public final class AiQuoteSnapshotBuilder {
         }
         String sourceText = source == InputSource.CUSTOMER_EMAIL ? emailBody
                 : source == InputSource.CUSTOMER_SUPPLEMENT ? additionalNotes : null;
-        return sourceText != null && sourceText.contains(quote)
+        return containsEvidence(sourceText, quote)
                 && containsNumber(quote, value) && containsUnit(quote, unit);
+    }
+
+    private boolean containsEvidence(String sourceText, String evidence) {
+        if (sourceText == null || evidence == null || evidence.isBlank()) {
+            return false;
+        }
+        return normalizeEvidenceText(sourceText).contains(normalizeEvidenceText(evidence));
+    }
+
+    private String normalizeEvidenceText(String text) {
+        return text.replace('\u00a0', ' ')
+                .replace('\u202f', ' ')
+                .replaceAll("\\s+", " ")
+                .strip();
     }
 
     private boolean containsUnit(String evidence, String unitCode) {

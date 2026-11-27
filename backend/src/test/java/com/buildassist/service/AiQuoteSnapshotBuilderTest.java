@@ -46,6 +46,29 @@ class AiQuoteSnapshotBuilderTest {
     }
 
     @Test
+    void verifiesSourceAndNumericEvidenceAcrossDifferentLineBreaks() {
+        String email = "Szeretnék 18 m²\r\nfalat festeni.";
+        String evidence = "Szeretnék 18 m²\nfalat festeni.";
+        CatalogItem catalogItem = item(90L, "Falfestés", "m2", CatalogItemType.LABOR,
+                "1000", null, "400", directConfig());
+        AiQuoteDtos.WorkProposal proposal = work(
+                "wall-paint", "Fal festése", evidence, new BigDecimal("18"), "m2",
+                List.of(directLine("wall-paint-line", 90L, "area", "18", "m2", evidence, "m2")));
+
+        AiQuoteSnapshotBuilder.BuildResult result = builder.build(
+                extraction(proposal), List.of(catalogItem), email, null);
+
+        DraftQuoteSnapshot.QuoteWorkSnapshot work = result.snapshot().workItems().getFirst();
+        assertEquals(InputSource.CUSTOMER_EMAIL, work.source());
+        assertEquals(evidence, work.sourceEvidence());
+        assertEquals(new BigDecimal("18"), work.customerRequestedQuantity().value());
+        assertEquals(WorkRecognitionStatus.MAPPED, work.recognitionStatus());
+        assertEquals(CalculationStatus.VALID,
+                result.snapshot().lineItems().getFirst().calculationResult().status());
+        assertTrue(result.reviewWarnings().isEmpty());
+    }
+
+    @Test
     void calculatesPavingWorkDirectlyLinkedToEachWorkAndOnlyUsesConfiguredAllowance() {
         String email = "45 m² kocsibeálló, 15 cm alapréteg, 15 m hosszú beálló, "
                 + "két oldalra szegély és külön 12 m² járda, ahol az alap már elkészült.";
