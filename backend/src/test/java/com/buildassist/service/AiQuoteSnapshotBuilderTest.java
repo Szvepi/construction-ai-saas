@@ -31,6 +31,21 @@ class AiQuoteSnapshotBuilderTest {
     }
 
     @Test
+    void explainsInPlainLanguageWhenCustomerSourceEvidenceCannotBeVerified() {
+        AiQuoteDtos.WorkProposal proposal = work(
+                "roof", "Roof repair", "The roof repairs were requested", null, null, List.of());
+
+        AiQuoteSnapshotBuilder.BuildResult result = builder.build(
+                extraction(proposal), List.of(), "Please quote a roof repair.", null);
+
+        String expectedWarning = "Nem találtam meg a hivatkozott részt az emailben vagy a kiegészítésben. "
+                + "Ellenőrizd, hogy ez a munka valóban része-e az ajánlatnak.";
+        assertTrue(result.reviewWarnings().contains(expectedWarning));
+        assertEquals(InputSource.AI_ASSUMPTION, result.snapshot().workItems().getFirst().source());
+        assertNull(result.snapshot().workItems().getFirst().sourceEvidence());
+    }
+
+    @Test
     void calculatesPavingWorkDirectlyLinkedToEachWorkAndOnlyUsesConfiguredAllowance() {
         String email = "45 m² kocsibeálló, 15 cm alapréteg, 15 m hosszú beálló, "
                 + "két oldalra szegély és külön 12 m² járda, ahol az alap már elkészült.";

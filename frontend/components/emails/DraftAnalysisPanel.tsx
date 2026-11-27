@@ -501,7 +501,8 @@ export function DraftAnalysisPanel({
 
                     {(coverageWarnings.length > 0 || reviewWarnings.length > 0) && (
                         <div className={coverageItems.length > 0 ? "mt-4 border-t border-amber-200 pt-3" : "mt-3"}>
-                            <h4 className="text-sm font-semibold text-amber-950">AI-ellenőrzési figyelmeztetések</h4>
+                            <h4 className="text-sm font-semibold text-amber-950">Mira - ellenőrzési
+                                figyelmeztetések</h4>
                             <ul className="mt-2 space-y-2">
                                 {coverageWarnings.length > 0 ? coverageWarnings.map((warning) => (
                                     <li key={warning.warningId} className="rounded-lg bg-white p-3">

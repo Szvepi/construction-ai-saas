@@ -46,5 +46,7 @@ class AiQuoteExtractionServiceTest {
         assertTrue(message.getText().contains("\"client_name\": \"string or null\""));
         assertTrue(message.getText().contains(email.getBodyText()));
         assertTrue(message.getText().contains(notes));
+        assertTrue(message.getText().contains("concise, professional Hungarian"));
+        assertTrue(message.getText().contains("do not impose a fixed response-length limit"));
     }
 }

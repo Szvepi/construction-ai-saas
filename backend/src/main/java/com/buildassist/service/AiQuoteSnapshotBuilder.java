@@ -5,20 +5,14 @@ import com.buildassist.dto.AiQuoteDtos;
 import com.buildassist.model.CatalogItem;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 @Component
 public final class AiQuoteSnapshotBuilder {
@@ -905,13 +899,14 @@ public final class AiQuoteSnapshotBuilder {
                 return new SourceResolution(source, quoted, null);
             }
             return new SourceResolution(InputSource.AI_ASSUMPTION, null,
-                    "Az AI által hivatkozott ügyfélszövegbeli forrás nem található meg pontosan.");
+                    "Nem találtam meg a hivatkozott részt az emailben vagy a kiegészítésben. "
+                            + "Ellenőrizd, hogy ez a munka valóban része-e az ajánlatnak.");
         }
         if (source == InputSource.AI_ASSUMPTION) {
             return new SourceResolution(source, null, null);
         }
         return new SourceResolution(InputSource.AI_ASSUMPTION, null,
-                "Az AI nem állíthat katalógus-, kivitelezői vagy felhasználói forrásból származó adatot.");
+                "Az AI nem állíthat katalógus, kivitelezői vagy felhasználói forrásból származó adatot.");
     }
 
     private SettlementResolution resolveSettlement(
@@ -964,9 +959,12 @@ public final class AiQuoteSnapshotBuilder {
         String expression = switch (unit) {
             case MILLIMETER -> "(?:(?<=\\d)mm|(?<![\\p{L}\\p{N}])mm)(?![\\p{L}\\p{N}])";
             case CENTIMETER -> "(?:(?<=\\d)cm|(?<![\\p{L}\\p{N}])cm)(?![\\p{L}\\p{N}])";
-            case METER -> "(?:(?<=\\d)m(?![²23³])|(?<![\\p{L}\\p{N}])(?:m(?![²23³])|fm|folyóméter|folyometer|méter|meter))(?![\\p{L}\\p{N}])";
-            case SQUARE_METER -> "(?:(?<=\\d)(?:m2|m²|nm)|(?<![\\p{L}\\p{N}])(?:m2|m²|nm|négyzetméter(?:es)?|negyzetmeter(?:es)?))(?![\\p{L}\\p{N}])";
-            case CUBIC_METER -> "(?:(?<=\\d)(?:m3|m³)|(?<![\\p{L}\\p{N}])(?:m3|m³|köbméter|kobmeter))(?![\\p{L}\\p{N}])";
+            case METER ->
+                    "(?:(?<=\\d)m(?![²23³])|(?<![\\p{L}\\p{N}])(?:m(?![²23³])|fm|folyóméter|folyometer|méter|meter))(?![\\p{L}\\p{N}])";
+            case SQUARE_METER ->
+                    "(?:(?<=\\d)(?:m2|m²|nm)|(?<![\\p{L}\\p{N}])(?:m2|m²|nm|négyzetméter(?:es)?|negyzetmeter(?:es)?))(?![\\p{L}\\p{N}])";
+            case CUBIC_METER ->
+                    "(?:(?<=\\d)(?:m3|m³)|(?<![\\p{L}\\p{N}])(?:m3|m³|köbméter|kobmeter))(?![\\p{L}\\p{N}])";
             case LITER -> "(?:(?<=\\d)l|(?<![\\p{L}\\p{N}])(?:l|liter|litre))(?![\\p{L}\\p{N}])";
             case SQUARE_METER_PER_LITER -> "(?:(?<=\\d)m(?:2|²)/l|(?<![\\p{L}\\p{N}])m(?:2|²)/l)(?![\\p{L}\\p{N}])";
             case EACH -> null;
